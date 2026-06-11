@@ -124,10 +124,15 @@ public class PaymentWebhookService {
     if (incoming == PaymentStatus.paid) {
       order.setPaidAt(Instant.now());
       order.setPaymentLastError(null);
-      if (order.getStatus() == OrderStatus.placed || order.getStatus() == OrderStatus.cancelled) {
+      if (order.getStatus() == OrderStatus.draft) {
+        order.setStatus(OrderStatus.placed);
+      } else if (order.getStatus() == OrderStatus.placed || order.getStatus() == OrderStatus.cancelled) {
         order.setStatus(OrderStatus.confirmed);
       }
       orderService.applyPaidEffects(order);
+      if (beforeOrder == OrderStatus.draft && order.getStatus() == OrderStatus.placed) {
+        orderService.notifyOrderPlaced(order, order.getUser().getId());
+      }
     } else if (incoming == PaymentStatus.failed || incoming == PaymentStatus.cancelled) {
       order.setPaymentLastError(extractErrorMessage(payload, incoming.name()));
       if (order.getStatus() == OrderStatus.placed) {

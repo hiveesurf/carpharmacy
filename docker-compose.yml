@@ -28,6 +28,7 @@ services:
         required: false
     environment:
       SPRING_PROFILES_ACTIVE: local
+      WHATSAPP_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy

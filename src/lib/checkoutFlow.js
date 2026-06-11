@@ -23,37 +23,45 @@ export async function ensureRazorpayScript() {
   return Boolean(window.Razorpay)
 }
 
+function orderAmountPaise(order) {
+  const total = Number(order?.totalInr ?? order?.total ?? 0)
+  return Math.round(total * 100)
+}
+
 /**
- * @param {{ order: { id: string }, user?: { displayName?: string, phone?: string, phoneE164?: string, email?: string } }} params
+ * @param {{ order: { id: string, totalInr?: number, total?: number }, user?: { displayName?: string, phone?: string, phoneE164?: string, email?: string, name?: string } }} params
  */
 export async function openRazorpayCheckout({ order, user }) {
-  const init = await paymentService.initiatePayment({ orderId: order.id })
+  const amountPaise = orderAmountPaise(order)
+  const init = await paymentService.createPaymentOrder({
+    orderId: order.id,
+    amount: amountPaise > 0 ? amountPaise : undefined,
+  })
   const sdkReady = await ensureRazorpayScript()
   if (!sdkReady || !window.Razorpay) throw new Error('Razorpay SDK not available')
   await new Promise((resolve, reject) => {
     const rz = new window.Razorpay({
-      key: init.keyId,
+      key: init.key,
       amount: init.amount,
       currency: init.currency || 'INR',
       name: 'carpharmacy',
       description: `Order ${order.id}`,
-      order_id: init.razorpayOrderId,
+      order_id: init.orderId,
       prefill: {
-        name: user?.displayName || '',
+        name: user?.displayName || user?.name || '',
         contact: user?.phone || user?.phoneE164 || '',
         email: user?.email || '',
       },
       notes: {
         order_id: order.id,
-        transaction_id: init.transactionId,
       },
       handler: async (response) => {
         try {
-          await paymentService.confirmPayment({
+          await paymentService.verifyPayment({
             orderId: order.id,
-            razorpayOrderId: response.razorpay_order_id,
-            razorpayPaymentId: response.razorpay_payment_id,
-            razorpaySignature: response.razorpay_signature,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_signature: response.razorpay_signature,
           })
           resolve()
         } catch (err) {

@@ -23,7 +23,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
-import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,7 +44,6 @@ public class AuthService {
   private final PasswordEncoder passwordEncoder;
   private final NotificationService notificationService;
   private final WhatsappService whatsappService;
-  private final Environment environment;
   private final SecureRandom random = new SecureRandom();
 
   public AuthService(
@@ -58,8 +56,7 @@ public class AuthService {
       JwtService jwtService,
       PasswordEncoder passwordEncoder,
       NotificationService notificationService,
-      WhatsappService whatsappService,
-      Environment environment) {
+      WhatsappService whatsappService) {
     this.appProperties = appProperties;
     this.userRepository = userRepository;
     this.userProfileRepository = userProfileRepository;
@@ -70,25 +67,22 @@ public class AuthService {
     this.passwordEncoder = passwordEncoder;
     this.notificationService = notificationService;
     this.whatsappService = whatsappService;
-    this.environment = environment;
   }
 
-  /**
-   * @deprecated Legacy OTP endpoint retained for rollback compatibility while Firebase exchange is rolled out.
-   */
-  @Deprecated
+  /** Sends login OTP via Twilio WhatsApp; stores bcrypt hash for verify. No demo/fixed OTP. */
   @Transactional
   public Map<String, Object> sendOtp(String phoneDigits) {
     String phoneKey = normalizePhoneKey(phoneDigits);
     if (phoneKey.length() != 10) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid phone");
     }
-    String otp = appProperties.otp().demoCode();
-    boolean whatsappEnabled = whatsappService.isEnabled();
-    boolean whatsappSent = false;
-    if (whatsappEnabled) {
-      otp = String.format("%06d", random.nextInt(1_000_000));
+    if (!whatsappService.isEnabled()) {
+      throw new ApiException(
+          HttpStatus.SERVICE_UNAVAILABLE,
+          "OTP_PROVIDER_UNAVAILABLE",
+          "Login OTP is unavailable. Configure WHATSAPP_ENABLED and Twilio credentials.");
     }
+    String otp = String.format("%06d", random.nextInt(1_000_000));
     OtpChallenge ch = new OtpChallenge();
     ch.setPhoneE164(phoneKey);
     ch.setCodeHash(passwordEncoder.encode(otp));
@@ -107,34 +101,21 @@ public class AuthService {
           Map.of("phone", phoneKey));
     }
 
-    if (whatsappEnabled) {
-      try {
-        whatsappService.sendOtp(phoneKey, otp);
-        whatsappSent = true;
-      } catch (RuntimeException ex) {
-        if (isLocalDevProfile()) {
-          whatsappSent = false;
-        } else {
-          throw ex;
-        }
-      }
+    try {
+      whatsappService.sendOtp(phoneKey, otp);
+    } catch (RuntimeException ex) {
+      throw new ApiException(
+          HttpStatus.BAD_GATEWAY,
+          "OTP_SEND_FAILED",
+          "Could not send OTP via WhatsApp. Check Twilio configuration and try again.");
     }
 
     Map<String, Object> data = new LinkedHashMap<>();
     data.put("sent", true);
     data.put("ttlSeconds", appProperties.otp().ttlSeconds());
-    if (!whatsappEnabled || !whatsappSent || isLocalDevProfile()) {
-      data.put("demoOtp", otp);
-    }
-    data.put("deprecated", true);
-    data.put("migration", "Use Firebase phone auth and /auth/firebase/exchange");
     return data;
   }
 
-  /**
-   * @deprecated Legacy OTP endpoint retained for rollback compatibility while Firebase exchange is rolled out.
-   */
-  @Deprecated
   @Transactional
   public VerifyPayload verifyOtp(String phoneDigits, String otp) {
     String phoneKey = normalizePhoneKey(phoneDigits);
@@ -205,7 +186,7 @@ public class AuthService {
         "You signed in successfully.",
         "auth",
         user.getId().toString(),
-        Map.of("phone", phoneKey, "provider", "firebase"));
+        Map.of("phone", phoneKey, "provider", "twilio_otp"));
     return new VerifyPayload(data, refreshRaw);
   }
 
@@ -381,13 +362,4 @@ public class AuthService {
     return digits;
   }
 
-  private boolean isLocalDevProfile() {
-    for (String p : environment.getActiveProfiles()) {
-      String v = p == null ? "" : p.trim().toLowerCase();
-      if ("local".equals(v) || "dev".equals(v)) {
-        return true;
-      }
-    }
-    return false;
-  }
 }

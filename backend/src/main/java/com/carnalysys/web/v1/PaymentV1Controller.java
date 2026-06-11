@@ -3,9 +3,12 @@ package com.carnalysys.web.v1;
 import com.carnalysys.api.ApiEnvelope;
 import com.carnalysys.service.PaymentGatewayService;
 import com.carnalysys.service.PaymentWebhookService;
+import com.carnalysys.web.dto.CreatePaymentOrderRequest;
+import com.carnalysys.web.dto.VerifyPaymentRequest;
 import com.carnalysys.web.support.ApiResponses;
 import com.carnalysys.web.support.AuthSupport;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,6 +27,22 @@ public class PaymentV1Controller {
       PaymentWebhookService paymentWebhookService, PaymentGatewayService paymentGatewayService) {
     this.paymentWebhookService = paymentWebhookService;
     this.paymentGatewayService = paymentGatewayService;
+  }
+
+  @PostMapping("/create-order")
+  public ApiEnvelope<Map<String, Object>> createOrder(
+      HttpServletRequest req, @Valid @RequestBody CreatePaymentOrderRequest body) {
+    return ApiResponses.ok(
+        req,
+        paymentGatewayService.createRazorpayOrder(
+            AuthSupport.requireUser(), body.amount(), body.orderId()));
+  }
+
+  @PostMapping("/verify")
+  public ApiEnvelope<Map<String, Object>> verify(
+      HttpServletRequest req, @Valid @RequestBody VerifyPaymentRequest body) {
+    return ApiResponses.ok(
+        req, paymentGatewayService.verifyRazorpayCheckout(AuthSupport.requireUser(), body));
   }
 
   @PostMapping("/initiate")

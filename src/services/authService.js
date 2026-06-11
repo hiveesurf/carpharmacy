@@ -10,7 +10,7 @@ function normalizeOtpPhone(phone) {
   return digits.slice(-10)
 }
 
-/** Strip spaces/dashes so pasted "1 2 3 4 5 6" matches backend "123456". */
+/** Strip spaces/dashes from pasted OTP before verify. */
 function normalizeOtpCode(otp) {
   return String(otp ?? '').replace(/\D/g, '')
 }

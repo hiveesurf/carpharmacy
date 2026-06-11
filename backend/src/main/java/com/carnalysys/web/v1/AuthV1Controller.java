@@ -3,11 +3,9 @@ package com.carnalysys.web.v1;
 import com.carnalysys.api.ApiEnvelope;
 import com.carnalysys.config.AppProperties;
 import com.carnalysys.service.AuthService;
-import com.carnalysys.service.FirebaseTokenVerifierService;
 import com.carnalysys.service.AuthService.VerifyPayload;
 import com.carnalysys.service.CartService;
 import com.carnalysys.service.NotificationService;
-import com.carnalysys.web.dto.FirebaseExchangeRequest;
 import com.carnalysys.web.dto.SendOtpRequest;
 import com.carnalysys.web.dto.VerifyOtpRequest;
 import com.carnalysys.web.support.ApiResponses;
@@ -41,19 +39,16 @@ public class AuthV1Controller {
   private final AppProperties appProperties;
   private final CartService cartService;
   private final NotificationService notificationService;
-  private final FirebaseTokenVerifierService firebaseTokenVerifierService;
 
   public AuthV1Controller(
       AuthService authService,
       AppProperties appProperties,
       CartService cartService,
-      NotificationService notificationService,
-      FirebaseTokenVerifierService firebaseTokenVerifierService) {
+      NotificationService notificationService) {
     this.authService = authService;
     this.appProperties = appProperties;
     this.cartService = cartService;
     this.notificationService = notificationService;
-    this.firebaseTokenVerifierService = firebaseTokenVerifierService;
   }
 
   /** Current profile from DB (role, name) — use after promoting user to admin so UI updates without re-OTP. */
@@ -76,29 +71,6 @@ public class AuthV1Controller {
       @Valid @RequestBody VerifyOtpRequest body) {
     var guestId = GuestRequest.guestId(req);
     VerifyPayload result = authService.verifyOtp(body.phoneDigits(), body.otp());
-    attachRefreshCookie(resp, result.refreshTokenRaw());
-    if (guestId.isPresent()) {
-      UUID uid = parseUserIdFromVerifyPayload(result.data());
-      if (uid != null) {
-        try {
-          cartService.mergeGuestCartIntoUser(uid, guestId.get());
-          clearGuestSessionCookie(resp);
-        } catch (RuntimeException ex) {
-          log.warn("Guest cart merge failed after login for user {}", uid, ex);
-        }
-      }
-    }
-    return ApiResponses.ok(req, result.data());
-  }
-
-  @PostMapping("/firebase/exchange")
-  public ApiEnvelope<Map<String, Object>> exchangeFirebaseToken(
-      HttpServletRequest req,
-      HttpServletResponse resp,
-      @Valid @RequestBody FirebaseExchangeRequest body) {
-    var guestId = GuestRequest.guestId(req);
-    String verifiedPhone = firebaseTokenVerifierService.verifyPhoneNumberFromIdToken(body.idToken());
-    VerifyPayload result = authService.loginWithVerifiedPhone(verifiedPhone);
     attachRefreshCookie(resp, result.refreshTokenRaw());
     if (guestId.isPresent()) {
       UUID uid = parseUserIdFromVerifyPayload(result.data());

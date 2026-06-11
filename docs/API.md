@@ -23,31 +23,25 @@ On start delivery / resend OTP, the customer also receives an **in-app notificat
 
 Override proxy target: **`VITE_DEV_API_PROXY=http://127.0.0.1:9090`**
 
-## Authentication (Firebase OTP + rollback endpoints)
+## Authentication (Twilio WhatsApp OTP)
 
 Admins and employees use the **same** auth flow as storefront users. There is no email/password admin login and no `adminSession` cookie.
 
-Primary login flow:
+Login flow:
 
-1. Frontend completes Firebase Phone Auth and receives Firebase ID token.
-2. Frontend exchanges token with `POST /auth/firebase/exchange`.
-3. Backend verifies Firebase token and issues app `accessToken` + httpOnly `refreshToken`.
-4. If phone matches `admin_users.phone_e164`, role is promoted from `admin_users.role`.
+1. Frontend calls `POST /auth/send-otp` with a 10-digit phone.
+2. Backend issues a 6-digit OTP (WhatsApp via Twilio when `WHATSAPP_ENABLED=true`; local demo code when disabled).
+3. Frontend calls `POST /auth/verify-otp` with phone + OTP.
+4. Backend verifies the OTP challenge and issues `accessToken` + httpOnly `refreshToken`.
+5. If phone matches `admin_users.phone_e164`, role is promoted from `admin_users.role`.
 
-Rollback compatibility:
-
-- Legacy endpoints `POST /auth/send-otp` and `POST /auth/verify-otp` are still present.
-- They are kept for fallback during migration, not as long-term primary flow.
-
-Twilio scope after migration:
-
-- Twilio/WhatsApp is retained for order-status and low-stock notifications.
-- Firebase is used only for OTP login.
+Twilio is also used for business WhatsApp notifications (order status, delivery OTP, low stock).
 
 | Step | Endpoint | Result |
 |------|----------|--------|
-| 1 | `POST /auth/firebase/exchange` | Firebase ID token exchanged for app session (`accessToken` + refresh cookie) |
-| 2 | (automatic) | If phone matches `admin_users.phone_e164`, `users.role` is set from `admin_users.role` (`super_admin`, `sales`, `delivery`) |
+| 1 | `POST /auth/send-otp` | OTP sent (WhatsApp when configured) |
+| 2 | `POST /auth/verify-otp` | Session created (`accessToken` + refresh cookie) |
+| 3 | (automatic) | If phone matches `admin_users.phone_e164`, `users.role` is set from `admin_users.role` (`super_admin`, `sales`, `delivery`) |
 | 4 | Admin UI / APIs | `Authorization: Bearer <accessToken>` on `/api/v1/admin/**` |
 | 5 | Denied | Phones not linked in `admin_users` get **403** on admin routes |
 
@@ -77,7 +71,7 @@ Auth **verify** / **refresh** `data` includes `accessToken` (refresh is **httpOn
 
 | Area | Routes |
 |------|--------|
-| Auth | `POST /auth/firebase/exchange`, `POST /auth/send-otp` (legacy), `POST /auth/verify-otp` (legacy), `/auth/refresh-token`, `/auth/logout`, `GET /auth/me` |
+| Auth | `POST /auth/send-otp`, `POST /auth/verify-otp`, `/auth/refresh-token`, `/auth/logout`, `GET /auth/me` |
 | User | `GET\|PUT /user/profile`, `GET /addresses`, `POST /addresses`, `PUT\|DELETE /addresses/:id` |
 | Catalog | `GET /products`, `GET /products/:id`, `GET /categories` |
 | Cart | `GET /cart`, `POST /cart`, `PUT /cart/:itemId`, `DELETE /cart/:itemId` |

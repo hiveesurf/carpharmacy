@@ -19,6 +19,7 @@ export function adminNotificationTargetPath(n) {
     n?.sourceType === 'order' ||
     n?.topic === 'admin_new_order' ||
     n?.topic === 'admin_delivery_completed' ||
+    n?.topic === 'admin_order_assigned' ||
     n?.topic === 'admin_alerts'
   if (orderLinked && n?.sourceId) {
     return '/admin/orders'

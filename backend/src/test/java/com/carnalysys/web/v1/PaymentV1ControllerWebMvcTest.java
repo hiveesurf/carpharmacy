@@ -53,6 +53,33 @@ class PaymentV1ControllerWebMvcTest extends ControllerSliceTestBase {
   }
 
   @Test
+  void createOrderReturnsRazorpayPayload() throws Exception {
+    when(paymentGatewayService.createRazorpayOrder(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(1000L), org.mockito.ArgumentMatchers.isNull()))
+        .thenReturn(Map.of("orderId", "order_test_1", "amount", 1000, "currency", "INR", "key", "rzp_test_x"));
+
+    mockMvc
+        .perform(
+            post("/api/v1/payments/create-order")
+                .with(asUser(USER))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"amount\":1000}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.orderId").value("order_test_1"))
+        .andExpect(jsonPath("$.data.key").value("rzp_test_x"));
+  }
+
+  @Test
+  void verifyRequiresAuth() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/payments/verify")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"orderId\":\"ord_1\",\"razorpay_order_id\":\"order_x\",\"razorpay_payment_id\":\"pay_x\",\"razorpay_signature\":\"sig_x\"}"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
   void initiateReturnsGatewayPayload() throws Exception {
     when(paymentGatewayService.initiateRazorpay(org.mockito.ArgumentMatchers.any(), eq("ord_1")))
         .thenReturn(Map.of("provider", "razorpay", "orderId", "ord_1", "status", "created"));

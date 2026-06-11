@@ -185,9 +185,6 @@ export function AuthProvider({ children }) {
       if (typeof d.ttlSeconds === 'number' && d.ttlSeconds > 0) {
         data.ttlSeconds = d.ttlSeconds
       }
-      if (typeof d.demoOtp === 'string' && d.demoOtp.trim()) {
-        data.demoOtp = d.demoOtp.trim()
-      }
       return { ok: true, data }
     } catch (e) {
       if (e?.status === 403) {

@@ -24,39 +24,13 @@ Frontend environment modes are defined in:
 - `.env.uat`
 - `.env.production`
 
-## Firebase OTP migration notes
+## Twilio OTP login + WhatsApp notifications
 
-- Firebase Phone Authentication is used only for login OTP.
-- Twilio/WhatsApp is still used for order status and low-stock notifications.
-- Legacy backend endpoints `POST /auth/send-otp` and `POST /auth/verify-otp` are retained for rollback compatibility.
+- Login OTP: `POST /auth/send-otp` → Twilio WhatsApp (`TWILIO_WHATSAPP_TEMPLATE_OTP_SID` or plain text).
+- Verify: `POST /auth/verify-otp` → JWT + refresh cookie.
+- Business alerts: order status, delivery OTP, low stock (same Twilio account; see `backend/.env.*.example`).
 
-### Frontend required env vars (Firebase client)
-
-Set these in root mode files (`.env.local`, `.env.uat`, `.env.production`) as needed:
-
-```bash
-VITE_FIREBASE_API_KEY=
-VITE_FIREBASE_AUTH_DOMAIN=
-VITE_FIREBASE_PROJECT_ID=
-VITE_FIREBASE_APP_ID=
-VITE_FIREBASE_MESSAGING_SENDER_ID=
-```
-
-### Backend required env vars (Firebase Admin verification)
-
-Use either inline credentials:
-
-```bash
-FIREBASE_PROJECT_ID=
-FIREBASE_CLIENT_EMAIL=
-FIREBASE_PRIVATE_KEY=
-```
-
-or service account file path:
-
-```bash
-FIREBASE_SERVICE_ACCOUNT_PATH=
-```
+Configure Twilio in `backend/.env.local` (see `backend/.env.local.example`). Set `WHATSAPP_ENABLED=false` for local fixed demo OTP (`123456`).
 
 ## Local Development
 
@@ -79,14 +53,12 @@ SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
 npm run dev:local
 ```
 
-### Firebase local test steps (OTP)
+### Local OTP test steps
 
-1. In Firebase console, enable **Phone Authentication** for the project.
-2. Add frontend Firebase vars (`VITE_FIREBASE_*`) in `.env.local`.
-3. Add backend Firebase Admin credentials (`FIREBASE_*`) in `backend/.env.local` (or shell env).
-4. Restart backend and frontend so env changes are loaded.
-5. Open app and login using phone OTP (Firebase flow in auth modal).
-6. Verify session endpoint works:
+1. Set Twilio vars in `backend/.env.local` (or `WHATSAPP_ENABLED=false` for demo `123456`).
+2. Restart backend and frontend.
+3. Open app → sign in → send OTP → verify.
+4. Verify session endpoint works:
 
 ```bash
 curl -i http://127.0.0.1:8080/api/v1/auth/me
@@ -170,9 +142,8 @@ Rollback:
 - Secrets managed via CI/secret manager, not git.
 - Security headers and cookie hardening enabled at reverse proxy and API.
 
-## Production notes (Firebase OTP)
+## Production notes (Twilio)
 
-- Store Firebase service account securely (prefer secret manager).
-- Do not commit `FIREBASE_PRIVATE_KEY` or service account JSON to git.
-- In production, inject Firebase credentials via environment/secret manager, not repo files.
-- Ensure Firebase billing/quotas are configured if SMS volume requires it.
+- Store `TWILIO_AUTH_TOKEN` and related secrets in a secret manager, not git.
+- Set `WHATSAPP_ENABLED=true` in UAT/prod; configure all required template SIDs.
+- Monitor Twilio message quotas and delivery errors in logs.

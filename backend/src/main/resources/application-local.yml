@@ -16,14 +16,12 @@ carnalysys:
     logs-dir: ${CARNALYSYS_STORAGE_LOGS_DIR:${user.dir}/data/carpharmacy/logs}
 
 app:
-  delivery:
-    demo-otp-enabled: true
   jwt:
     secret: ${APP_JWT_SECRET:dev-change-me-use-at-least-256-bits-for-production-secrets-please}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5199,http://127.0.0.1:5199}
   payment:
-    provider: ${APP_PAYMENT_PROVIDER:mockpay}
-    razorpay-key-id: ${APP_PAYMENT_RAZORPAY_KEY_ID:}
-    razorpay-key-secret: ${APP_PAYMENT_RAZORPAY_KEY_SECRET:}
+    provider: ${APP_PAYMENT_PROVIDER:razorpay}
+    razorpay-key-id: ${RAZORPAY_KEY_ID:${APP_PAYMENT_RAZORPAY_KEY_ID:}}
+    razorpay-key-secret: ${RAZORPAY_KEY_SECRET:${APP_PAYMENT_RAZORPAY_KEY_SECRET:}}
     webhook-secret: ${APP_PAYMENT_WEBHOOK_SECRET:dev-payment-secret}

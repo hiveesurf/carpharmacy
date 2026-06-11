@@ -105,6 +105,7 @@ export function Navbar() {
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef(null)
+  const notificationRef = useRef(null)
 
   useEffect(() => {
     if (!accountMenuOpen) return
@@ -116,6 +117,23 @@ export function Navbar() {
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [accountMenuOpen])
+
+  useEffect(() => {
+    if (!notificationsOpen) return undefined
+    function onPointerDown(ev) {
+      if (notificationRef.current?.contains(ev.target)) return
+      setNotificationsOpen(false)
+    }
+    function onKeyDown(ev) {
+      if (ev.key === 'Escape') setNotificationsOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [notificationsOpen, setNotificationsOpen])
 
   const [brandTextAnim] = useState(
     () => BRAND_TEXT_ANIM_PRESETS[Math.floor(Math.random() * BRAND_TEXT_ANIM_PRESETS.length)],
@@ -208,7 +226,7 @@ export function Navbar() {
           ) : null}
 
           {user ? (
-            <div className="relative">
+            <div className="relative" ref={notificationRef}>
               <button
                 type="button"
                 onClick={() => setNotificationsOpen((v) => !v)}

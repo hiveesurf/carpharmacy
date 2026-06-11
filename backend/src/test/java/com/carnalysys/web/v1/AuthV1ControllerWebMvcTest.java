@@ -15,7 +15,6 @@ import com.carnalysys.api.GlobalExceptionHandler;
 import com.carnalysys.service.AuthService;
 import com.carnalysys.service.AuthService.VerifyPayload;
 import com.carnalysys.service.CartService;
-import com.carnalysys.service.FirebaseTokenVerifierService;
 import com.carnalysys.service.NotificationService;
 import com.carnalysys.testsupport.ControllerSliceTestBase;
 import com.carnalysys.testsupport.JsonEnvelopeMatchers;
@@ -47,7 +46,6 @@ class AuthV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @MockBean private CartService cartService;
   @MockBean private NotificationService notificationService;
-  @MockBean private FirebaseTokenVerifierService firebaseTokenVerifierService;
 
   @Test
   void meRequiresUser() throws Exception {

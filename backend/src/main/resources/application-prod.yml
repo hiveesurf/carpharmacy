@@ -9,8 +9,6 @@ logging:
     org.springframework.web.servlet.DispatcherServlet: WARN
 
 app:
-  delivery:
-    demo-otp-enabled: false
   jwt:
     secret: ${APP_JWT_SECRET}
   cors:

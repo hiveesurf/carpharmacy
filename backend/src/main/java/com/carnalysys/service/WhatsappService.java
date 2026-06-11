@@ -169,13 +169,65 @@ public class WhatsappService {
     }
   }
 
+  /**
+   * Notifies a delivery employee that an order was assigned. Template-only; skipped when
+   * {@code TWILIO_WHATSAPP_TEMPLATE_DELIVERY_ASSIGNMENT_SID} is unset.
+   */
+  public boolean sendDeliveryAssignmentBestEffort(String phoneE164, String orderId) {
+    if (!isEnabled()) {
+      log.debug("WhatsApp delivery assignment skipped: WHATSAPP_ENABLED=false or Twilio credentials missing");
+      return false;
+    }
+    if (!hasText(phoneE164) || !hasText(orderId)) {
+      return false;
+    }
+    String templateSid = trim(env("TWILIO_WHATSAPP_TEMPLATE_DELIVERY_ASSIGNMENT_SID"));
+    if (!hasText(templateSid)) {
+      log.warn(
+          "WhatsApp delivery assignment skipped: TWILIO_WHATSAPP_TEMPLATE_DELIVERY_ASSIGNMENT_SID not configured");
+      return false;
+    }
+    try {
+      String link = deliveryPartnerOrderLink(orderId);
+      sendTemplate(
+          normalizeTo(phoneE164),
+          fromNumber(),
+          templateSid,
+          jsonOf(
+              Map.of(
+                  "1", orderId.trim(),
+                  "order_id", orderId.trim(),
+                  "order_number", orderId.trim(),
+                  "order_link", link)));
+      log.info("WhatsApp delivery assignment sent: orderId={}, phone={}", orderId, phoneE164);
+      return true;
+    } catch (RuntimeException ex) {
+      log.error(
+          "WhatsApp delivery assignment failed (ignored): orderId={}, phone={}",
+          orderId,
+          phoneE164,
+          ex);
+      return false;
+    }
+  }
+
   public boolean sendOrderStatusUpdateBestEffort(String phoneDigits, String orderId, OrderStatus status) {
     if (!isEnabled()) return false;
     if (!hasText(phoneDigits) || status == null) return false;
-    String text = orderStatusMessage(orderId, status, orderViewLink(orderId));
-    if (!hasText(text)) return false;
     try {
       String sid = orderStatusTemplateSid(status);
+      if (status == OrderStatus.refunded) {
+        if (!hasText(sid)) {
+          log.info(
+              "WhatsApp refunded notification skipped: TWILIO_WHATSAPP_TEMPLATE_REFUNDED_SID not configured");
+          return false;
+        }
+        sendTemplate(
+            normalizeTo(phoneDigits), fromNumber(), sid, contentVariables(orderId, orderViewLink(orderId)));
+        return true;
+      }
+      String text = orderStatusMessage(orderId, status, orderViewLink(orderId));
+      if (!hasText(text)) return false;
       if (hasText(sid)) {
         sendTemplate(normalizeTo(phoneDigits), fromNumber(), sid, contentVariables(orderId, orderViewLink(orderId)));
       } else {
@@ -272,6 +324,7 @@ public class WhatsappService {
       case shipped -> trim(env("TWILIO_WHATSAPP_TEMPLATE_SHIPPED_SID"));
       case delivered -> trim(env("TWILIO_WHATSAPP_TEMPLATE_DELIVERED_SID"));
       case cancelled -> trim(env("TWILIO_WHATSAPP_TEMPLATE_CANCELLED_SID"));
+      case refunded -> trim(env("TWILIO_WHATSAPP_TEMPLATE_REFUNDED_SID"));
       default -> "";
     };
   }
@@ -299,6 +352,8 @@ public class WhatsappService {
           "Order update: delivered\nOrder: " + oid + "\nView order: " + link;
       case cancelled ->
           "Order update: cancelled\nOrder: " + oid + "\nView order: " + link;
+      case refunded ->
+          "Order update: refunded\nOrder: " + oid + "\nView order: " + link;
       default -> null;
     };
   }
@@ -310,17 +365,26 @@ public class WhatsappService {
   }
 
   private String orderViewLink(String orderId) {
+    return publicWebPath("/orders/" + (orderId != null ? orderId.trim() : ""));
+  }
+
+  private String deliveryPartnerOrderLink(String orderId) {
     String oid = orderId != null ? orderId.trim() : "";
+    return publicWebPath("/admin/deliveries/" + oid);
+  }
+
+  private String publicWebPath(String path) {
+    String suffix = path != null && path.startsWith("/") ? path : "/" + (path != null ? path : "");
     String base =
         firstNonBlank(
             env("APP_PUBLIC_WEB_URL"),
             env("APP_FRONTEND_BASE_URL"),
             firstCsvValue(env("APP_CORS_ALLOWED_ORIGINS")));
     if (!hasText(base)) {
-      return "/orders/" + oid;
+      return suffix;
     }
     String normalized = trim(base).replaceAll("/+$", "");
-    return normalized + "/orders/" + oid;
+    return normalized + suffix;
   }
 
   private static String firstCsvValue(String csv) {

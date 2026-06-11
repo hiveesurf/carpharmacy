@@ -58,23 +58,16 @@ app:
   refresh-token:
     ttl-seconds: 604800
   otp:
-    demo-code: "123456"
     ttl-seconds: 20
   delivery:
     otp-ttl-seconds: 900
     otp-resend-cooldown-seconds: 30
-    demo-otp-enabled: false
-  firebase:
-    project-id: ${FIREBASE_PROJECT_ID:}
-    client-email: ${FIREBASE_CLIENT_EMAIL:}
-    private-key: ${FIREBASE_PRIVATE_KEY:}
-    service-account-path: ${FIREBASE_SERVICE_ACCOUNT_PATH:}
   cors:
     allowed-origins: ""
   payment:
-    provider: "mockpay"
-    razorpay-key-id: ${APP_PAYMENT_RAZORPAY_KEY_ID:}
-    razorpay-key-secret: ${APP_PAYMENT_RAZORPAY_KEY_SECRET:}
+    provider: ${APP_PAYMENT_PROVIDER:mockpay}
+    razorpay-key-id: ${RAZORPAY_KEY_ID:${APP_PAYMENT_RAZORPAY_KEY_ID:}}
+    razorpay-key-secret: ${RAZORPAY_KEY_SECRET:${APP_PAYMENT_RAZORPAY_KEY_SECRET:}}
     webhook-replay-window-seconds: 600
     reconciliation-ms: 300000
     pending-timeout-minutes: 30

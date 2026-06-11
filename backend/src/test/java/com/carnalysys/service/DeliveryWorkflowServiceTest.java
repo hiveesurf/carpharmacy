@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,7 +41,6 @@ class DeliveryWorkflowServiceTest {
   @Mock WhatsappService whatsappService;
   @Mock PasswordEncoder passwordEncoder;
   @Mock UploadStorageService uploadStorageService;
-  @Mock Environment environment;
 
   private DeliveryOtpDerivationService otpDerivation;
   private DeliveryWorkflowService service;
@@ -53,9 +51,8 @@ class DeliveryWorkflowServiceTest {
         new AppProperties(
             new AppProperties.Jwt("test-secret-for-delivery-otp", 900),
             new AppProperties.RefreshToken(604800),
-            new AppProperties.Otp("123456", 20),
-            new AppProperties.Delivery(900, 30, false),
-            new AppProperties.Firebase(null, null, null, null),
+            new AppProperties.Otp(20),
+            new AppProperties.Delivery(900, 30),
             new AppProperties.Cors(""),
             new AppProperties.Payment("mockpay", null, null, null, 600, 300000, 30));
     otpDerivation = new DeliveryOtpDerivationService(props);
@@ -70,8 +67,7 @@ class DeliveryWorkflowServiceTest {
             passwordEncoder,
             props,
             uploadStorageService,
-            otpDerivation,
-            environment);
+            otpDerivation);
   }
 
   @Test
@@ -100,8 +96,6 @@ class DeliveryWorkflowServiceTest {
     when(passwordEncoder.encode(anyString())).thenReturn("hash");
     when(orderLineRepository.findByOrder_Id("ord-1")).thenReturn(java.util.List.of());
     when(orderService.toDeliveryPartnerOrderMap(any(), any())).thenReturn(Map.of("id", "ord-1"));
-    when(environment.getActiveProfiles()).thenReturn(new String[] {"prod"});
-
     service.markOutForDelivery("ord-1", "partner@carnalysys.local");
 
     assertThat(order.getDeliveryStage()).isEqualTo(DeliveryStage.otp_pending);
@@ -117,44 +111,51 @@ class DeliveryWorkflowServiceTest {
   }
 
   @Test
-  void markOutForDelivery_localDemoProfile_sendsDemoOtpViaWhatsApp() {
+  void markOutForDelivery_sendsDerivedOtpViaWhatsApp() {
     OrderEntity order = assignedOrder();
     order.setDeliveryStage(DeliveryStage.accepted);
     when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
     when(passwordEncoder.encode(anyString())).thenReturn("hash");
     when(orderLineRepository.findByOrder_Id("ord-1")).thenReturn(java.util.List.of());
     when(orderService.toDeliveryPartnerOrderMap(any(), any())).thenReturn(Map.of("id", "ord-1"));
-    when(environment.getActiveProfiles()).thenReturn(new String[] {"local"});
+    service.markOutForDelivery("ord-1", "partner@carnalysys.local");
 
-    var localDemoProps =
-        new AppProperties(
-            new AppProperties.Jwt("test-secret-for-delivery-otp", 900),
-            new AppProperties.RefreshToken(604800),
-            new AppProperties.Otp("123456", 20),
-            new AppProperties.Delivery(900, 30, true),
-            new AppProperties.Firebase(null, null, null, null),
-            new AppProperties.Cors(""),
-            new AppProperties.Payment("mockpay", null, null, null, 600, 300000, 30));
-    var localService =
-        new DeliveryWorkflowService(
-            orderRepository,
-            orderLineRepository,
-            adminUserRepository,
-            orderService,
-            notificationService,
-            whatsappService,
-            passwordEncoder,
-            localDemoProps,
-            uploadStorageService,
-            otpDerivation,
-            environment);
-
-    localService.markOutForDelivery("ord-1", "partner@carnalysys.local");
-
-    verify(whatsappService).sendDeliveryOtpBestEffort(eq("9004027637"), eq("ord-1"), eq("123456"));
+    String expectedOtp = otpDerivation.deriveOtp("ord-1", order.getDeliveryOtpNonce());
+    verify(whatsappService).sendDeliveryOtpBestEffort(eq("9004027637"), eq("ord-1"), eq(expectedOtp));
     Map<String, Object> userMap = new LinkedHashMap<>();
-    localService.putDeliveryFields(userMap, order, DeliveryWorkflowService.DeliveryFieldsMode.USER);
-    assertThat(userMap.get("deliveryOtp")).isEqualTo("123456");
+    service.putDeliveryFields(userMap, order, DeliveryWorkflowService.DeliveryFieldsMode.USER);
+    assertThat(userMap.get("deliveryOtp")).isEqualTo(expectedOtp);
+  }
+
+  @Test
+  void verifyDeliveryOtp_rejects123456WhenNotIssued() {
+    OrderEntity order = assignedOrder();
+    order.setDeliveryStage(DeliveryStage.otp_pending);
+    order.setDeliveryOtpNonce("nonce-1");
+    order.setDeliveryOtpExpiresAt(Instant.now().plusSeconds(600));
+    order.setDeliveryOtpHash("hash");
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(passwordEncoder.matches(eq("123456"), eq("hash"))).thenReturn(false);
+
+    assertThatThrownBy(
+            () -> service.verifyDeliveryOtp("ord-1", "partner@carnalysys.local", "123456"))
+        .isInstanceOf(ApiException.class)
+        .hasMessageContaining("Invalid");
+  }
+
+  @Test
+  void markOutForDelivery_notifiesShippedWhenStatusChanges() {
+    OrderEntity order = assignedOrder();
+    order.setStatus(OrderStatus.processing);
+    order.setDeliveryStage(DeliveryStage.accepted);
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(passwordEncoder.encode(anyString())).thenReturn("hash");
+    when(orderLineRepository.findByOrder_Id("ord-1")).thenReturn(java.util.List.of());
+    when(orderService.toDeliveryPartnerOrderMap(any(), any())).thenReturn(Map.of("id", "ord-1"));
+    service.markOutForDelivery("ord-1", "partner@carnalysys.local");
+
+    verify(orderService)
+        .notifyCustomerOrderStatusBestEffort(order, OrderStatus.processing, OrderStatus.shipped);
   }
 
   @Test
@@ -165,8 +166,6 @@ class DeliveryWorkflowServiceTest {
     when(passwordEncoder.encode(anyString())).thenReturn("hash");
     when(orderLineRepository.findByOrder_Id("ord-1")).thenReturn(java.util.List.of());
     when(orderService.toDeliveryPartnerOrderMap(any(), any())).thenReturn(Map.of("id", "ord-1"));
-    when(environment.getActiveProfiles()).thenReturn(new String[] {"prod"});
-
     service.markOutForDelivery("ord-1", "partner@carnalysys.local");
 
     String expectedOtp = otpDerivation.deriveOtp("ord-1", order.getDeliveryOtpNonce());
@@ -195,8 +194,6 @@ class DeliveryWorkflowServiceTest {
     when(passwordEncoder.encode(anyString())).thenReturn("hash");
     when(orderLineRepository.findByOrder_Id("ord-1")).thenReturn(java.util.List.of());
     when(orderService.toDeliveryPartnerOrderMap(any(), any())).thenReturn(Map.of("id", "ord-1"));
-    when(environment.getActiveProfiles()).thenReturn(new String[] {"prod"});
-
     service.resendDeliveryOtp("ord-1", "partner@carnalysys.local");
 
     String expectedOtp = otpDerivation.deriveOtp("ord-1", order.getDeliveryOtpNonce());
@@ -220,8 +217,6 @@ class DeliveryWorkflowServiceTest {
     when(passwordEncoder.encode(anyString())).thenReturn("hash");
     when(orderLineRepository.findByOrder_Id("ord-1")).thenReturn(java.util.List.of());
     when(orderService.toDeliveryPartnerOrderMap(any(), any())).thenReturn(Map.of("id", "ord-1"));
-    when(environment.getActiveProfiles()).thenReturn(new String[] {"prod"});
-
     Instant before = Instant.now();
     service.markOutForDelivery("ord-1", "partner@carnalysys.local");
     Instant after = Instant.now();
@@ -255,8 +250,6 @@ class DeliveryWorkflowServiceTest {
     order.setDeliveryStage(DeliveryStage.otp_pending);
     order.setDeliveryOtpNonce("nonce-1");
     order.setDeliveryOtpExpiresAt(Instant.now().plusSeconds(600));
-    when(environment.getActiveProfiles()).thenReturn(new String[] {"prod"});
-
     Map<String, Object> view = service.customerDeliveryOtpView(order);
     assertThat(view.get("otpPending")).isEqualTo(true);
     assertThat(view.get("otpExpired")).isEqualTo(false);
@@ -287,8 +280,6 @@ class DeliveryWorkflowServiceTest {
     when(passwordEncoder.encode(anyString())).thenReturn("hash");
     when(orderLineRepository.findByOrder_Id("ord-1")).thenReturn(java.util.List.of());
     when(orderService.toDeliveryPartnerOrderMap(any(), any())).thenReturn(Map.of("id", "ord-1"));
-    when(environment.getActiveProfiles()).thenReturn(new String[] {"prod"});
-
     service.resendDeliveryOtp("ord-1", "partner@carnalysys.local");
 
     assertThat(order.getDeliveryOtpNonce()).isNotEqualTo("old-nonce");

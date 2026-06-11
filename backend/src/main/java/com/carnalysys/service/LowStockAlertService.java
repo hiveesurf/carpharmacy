@@ -133,6 +133,7 @@ public class LowStockAlertService {
     notificationService.notifySuperAdminAndSalesLowStock(
         productId, name, sku, current, threshold, severity, crossedIntoLow);
 
+    // WhatsApp low-stock goes to ADMIN_WHATSAPP_NUMBER only (not per-admin phones); cooldown above gates both channels.
     boolean whatsappEnabled = whatsappService.isEnabled();
     log.info("WhatsApp low-stock: enabled={}", whatsappEnabled);
     String messageSid =

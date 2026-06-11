@@ -35,6 +35,9 @@ public class NotificationService {
   /** In-app alert to super_admin + sales when an order is marked delivered. */
   public static final String TOPIC_ADMIN_DELIVERY_COMPLETED = "admin_delivery_completed";
 
+  /** In-app alert to super_admin + sales when a delivery employee is assigned to an order. */
+  public static final String TOPIC_ADMIN_ORDER_ASSIGNED = "admin_order_assigned";
+
   /** In-app alert when a product's stock falls to the low-stock threshold. */
   public static final String TOPIC_ADMIN_LOW_STOCK = "admin_low_stock";
 
@@ -199,6 +202,24 @@ public class NotificationService {
         "order",
         orderId,
         Map.of("orderId", orderId));
+  }
+
+  /**
+   * Notifies super_admin and sales when a delivery employee is assigned. Deduped per (topic, order id).
+   */
+  @Transactional
+  public void notifySuperAdminAndSalesOrderAssigned(String orderId, String assigneeLabel) {
+    if (orderId == null || orderId.isBlank()) return;
+    String who = assigneeLabel != null && !assigneeLabel.isBlank() ? assigneeLabel.trim() : "delivery partner";
+    String title = "Order assigned";
+    String body = "Order #" + orderId + " assigned to " + who + ".";
+    broadcastToSuperAdminAndSales(
+        TOPIC_ADMIN_ORDER_ASSIGNED,
+        title,
+        body,
+        "order",
+        orderId,
+        Map.of("orderId", orderId, "assignee", who));
   }
 
   private void broadcastToSuperAdminAndSales(

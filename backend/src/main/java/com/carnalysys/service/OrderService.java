@@ -1,6 +1,7 @@
 package com.carnalysys.service;
 
 import com.carnalysys.api.ApiException;
+import com.carnalysys.config.AppProperties;
 import com.carnalysys.domain.AddressEntity;
 import com.carnalysys.domain.Cart;
 import com.carnalysys.domain.CartItem;
@@ -72,6 +73,7 @@ public class OrderService {
   private final WhatsappService whatsappService;
   private final LowStockAlertService lowStockAlertService;
   private final DeliveryWorkflowService deliveryWorkflowService;
+  private final AppProperties appProperties;
 
   public OrderService(
       OrderRepository orderRepository,
@@ -89,7 +91,8 @@ public class OrderService {
       NotificationService notificationService,
       WhatsappService whatsappService,
       LowStockAlertService lowStockAlertService,
-      @Lazy DeliveryWorkflowService deliveryWorkflowService) {
+      @Lazy DeliveryWorkflowService deliveryWorkflowService,
+      AppProperties appProperties) {
     this.orderRepository = orderRepository;
     this.orderLineRepository = orderLineRepository;
     this.addressRepository = addressRepository;
@@ -106,6 +109,7 @@ public class OrderService {
     this.whatsappService = whatsappService;
     this.lowStockAlertService = lowStockAlertService;
     this.deliveryWorkflowService = deliveryWorkflowService;
+    this.appProperties = appProperties;
   }
 
   @Transactional
@@ -142,7 +146,6 @@ public class OrderService {
     OrderEntity order = new OrderEntity();
     order.setId("ord_" + UUID.randomUUID());
     order.setUser(user);
-    order.setStatus(OrderStatus.placed);
     order.setCurrency("INR");
     AddressEntity ship = null;
     if (addressIdStr != null && !addressIdStr.isBlank()) {
@@ -160,7 +163,13 @@ public class OrderService {
     order.setShippingAddress(ship);
     order.setPaymentMethod(paymentMethod);
     order.setPaymentTxnId(paymentTxnId);
-    order.setPaymentProvider(paymentMethod == PaymentMethod.cod ? "cod" : "manual");
+    boolean onlineRazorpay =
+        paymentMethod != PaymentMethod.cod
+            && (paymentTxnIdRaw == null || paymentTxnIdRaw.isBlank())
+            && !"success".equalsIgnoreCase(demoPaymentOutcome)
+            && "razorpay".equalsIgnoreCase(appProperties.payment().provider());
+    order.setPaymentProvider(
+        paymentMethod == PaymentMethod.cod ? "cod" : onlineRazorpay ? "razorpay" : "manual");
     order.setPaymentOrderRef(null);
     order.setPaymentAttemptCount(1);
 
@@ -204,8 +213,13 @@ public class OrderService {
     if (paidNow) {
       order.setPaymentStatus(PaymentStatus.paid);
       order.setPaidAt(Instant.now());
+      order.setStatus(OrderStatus.placed);
+    } else if (onlineRazorpay) {
+      order.setPaymentStatus(PaymentStatus.pending);
+      order.setStatus(OrderStatus.draft);
     } else {
       order.setPaymentStatus(PaymentStatus.pending);
+      order.setStatus(OrderStatus.placed);
     }
     orderRepository.saveAndFlush(order);
     orderLineRepository.saveAll(persisted);
@@ -215,18 +229,20 @@ public class OrderService {
       cartService.emptyCart(cart);
     }
 
-    writeStatusAudit(order, null, order.getStatus(), "system", uid.toString(), "order_placed");
     writePaymentEvent(order, null, "checkout", "init_" + order.getId(), "payment_initiated");
-    notificationService.notifyUser(
-        uid,
-        "order_status",
-        "Order placed",
-        "Your order " + order.getId() + " has been placed.",
-        "order",
-        order.getId(),
-        Map.of("status", order.getStatus().name()));
-    notificationService.notifySuperAdminAndSalesNewOrder(order.getId());
-    notifyOrderStatusWhatsappBestEffort(order, order.getStatus());
+    if (order.getStatus() == OrderStatus.draft) {
+      notificationService.notifyUser(
+          uid,
+          "payment",
+          "Complete payment",
+          "Your order " + order.getId() + " is awaiting payment.",
+          "order",
+          order.getId(),
+          Map.of("paymentStatus", order.getPaymentStatus().name(), "orderStatus", order.getStatus().name()));
+    } else {
+      writeStatusAudit(order, null, order.getStatus(), "system", uid.toString(), "order_placed");
+      notifyOrderPlaced(order, uid);
+    }
 
     UUID userRef = Objects.requireNonNull(user.getId(), "order user id");
     UserProfile profile = userProfileRepository.findById(userRef).orElse(null);
@@ -813,6 +829,21 @@ public class OrderService {
   }
 
   @Transactional
+  public void notifyOrderPlaced(OrderEntity order, UUID userId) {
+    if (order == null || userId == null) return;
+    notificationService.notifyUser(
+        userId,
+        "order_status",
+        "Order placed",
+        "Your order " + order.getId() + " has been placed.",
+        "order",
+        order.getId(),
+        Map.of("status", order.getStatus().name()));
+    notificationService.notifySuperAdminAndSalesNewOrder(order.getId());
+    notifyOrderStatusWhatsappBestEffort(order, order.getStatus());
+  }
+
+  @Transactional
   public void applyPaidEffects(OrderEntity order) {
     if (order == null || order.getPaymentStatus() != PaymentStatus.paid) return;
     List<OrderLine> lines = orderLineRepository.findByOrder_Id(order.getId());
@@ -906,6 +937,26 @@ public class OrderService {
           order.getId(),
           Map.of("paymentStatus", order.getPaymentStatus().name(), "orderStatus", order.getStatus().name()));
     }
+  }
+
+  /**
+   * Customer in-app + WhatsApp after order status is already persisted (e.g. delivery workflow).
+   * Does not mutate the order. Safe to call when status actually changed.
+   */
+  public void notifyCustomerOrderStatusBestEffort(
+      OrderEntity order, OrderStatus before, OrderStatus after) {
+    if (order == null || after == null || before == after) return;
+    UserEntity user = order.getUser();
+    if (user == null || user.getId() == null) return;
+    notificationService.notifyUser(
+        user.getId(),
+        "order_status",
+        "Your order status has changed",
+        "Your order " + order.getId() + " moved from " + before.name() + " to " + after.name() + ".",
+        "order",
+        order.getId(),
+        Map.of("from", before.name(), "to", after.name()));
+    notifyOrderStatusTransitionWhatsappBestEffort(order, before, after);
   }
 
   /**
@@ -1064,6 +1115,8 @@ public class OrderService {
     if (!retryablePaymentState) {
       return false;
     }
-    return orderStatus == OrderStatus.placed || orderStatus == OrderStatus.cancelled;
+    return orderStatus == OrderStatus.placed
+        || orderStatus == OrderStatus.cancelled
+        || orderStatus == OrderStatus.draft;
   }
 }

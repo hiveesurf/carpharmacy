@@ -13,10 +13,6 @@ export function verifyOtp(phone, otp) {
   return apiPost('/auth/verify-otp', { phone, otp }, { skipAuth: true })
 }
 
-export function exchangeFirebaseToken(idToken) {
-  return apiPost('/auth/firebase/exchange', { idToken }, { skipAuth: true })
-}
-
 /** Uses the same single-flight refresh as the rest of the app (Strict Mode–safe). */
 export async function refreshToken() {
   const r = await refreshSessionWithCookie()

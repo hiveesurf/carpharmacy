@@ -3,6 +3,8 @@ package com.carnalysys.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -28,7 +30,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -48,25 +49,82 @@ class AuthServiceTest {
   @Mock private PasswordEncoder passwordEncoder;
   @Mock private NotificationService notificationService;
   @Mock private WhatsappService whatsappService;
-  @Mock private Environment environment;
 
   @InjectMocks private AuthService authService;
 
   @Test
-  void sendOtpPersistsChallengeAndReturnsPayload() {
+  void sendOtpGeneratesRandomOtpAndSendsViaWhatsApp() {
     when(appProperties.otp()).thenReturn(otpProperties);
-    when(otpProperties.demoCode()).thenReturn("123456");
     when(otpProperties.ttlSeconds()).thenReturn(300);
-    when(passwordEncoder.encode("123456")).thenReturn("encoded-otp");
-    when(whatsappService.isEnabled()).thenReturn(false);
+    when(whatsappService.isEnabled()).thenReturn(true);
+    when(passwordEncoder.encode(any())).thenAnswer(inv -> "encoded-" + inv.getArgument(0));
 
     Map<String, Object> result = authService.sendOtp("9876543210");
 
     assertThat(result).containsEntry("sent", true).containsEntry("ttlSeconds", 300);
+    assertThat(result).doesNotContainKey("demoOtp");
     ArgumentCaptor<OtpChallenge> challengeCaptor = ArgumentCaptor.forClass(OtpChallenge.class);
     verify(otpChallengeRepository).save(challengeCaptor.capture());
     assertThat(challengeCaptor.getValue().getPhoneE164()).isEqualTo("9876543210");
-    assertThat(challengeCaptor.getValue().getCodeHash()).isEqualTo("encoded-otp");
+    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
+    verify(whatsappService).sendOtp(eq("9876543210"), otpCaptor.capture());
+    assertThat(otpCaptor.getValue()).matches("\\d{6}");
+  }
+
+  @Test
+  void sendOtpFailsWhenWhatsAppNotConfigured() {
+    when(whatsappService.isEnabled()).thenReturn(false);
+
+    assertThatThrownBy(() -> authService.sendOtp("9876543210"))
+        .isInstanceOf(ApiException.class)
+        .satisfies(
+            ex -> {
+              ApiException ae = (ApiException) ex;
+              assertThat(ae.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+              assertThat(ae.code()).isEqualTo("OTP_PROVIDER_UNAVAILABLE");
+            });
+    verify(otpChallengeRepository, never()).save(any());
+    verify(whatsappService, never()).sendOtp(any(), any());
+  }
+
+  @Test
+  void verifyOtpRejects123456WhenNotIssued() {
+    OtpChallenge challenge = new OtpChallenge();
+    challenge.setPhoneE164("9876543210");
+    challenge.setCodeHash("hash");
+    challenge.setExpiresAt(Instant.now().plusSeconds(600));
+    when(otpChallengeRepository.findTopByPhoneE164AndConsumedAtIsNullOrderByCreatedAtDesc("9876543210"))
+        .thenReturn(Optional.of(challenge));
+    when(passwordEncoder.matches("123456", "hash")).thenReturn(false);
+
+    assertThatThrownBy(() -> authService.verifyOtp("9876543210", "123456"))
+        .isInstanceOf(ApiException.class)
+        .satisfies(
+            ex -> {
+              ApiException ae = (ApiException) ex;
+              assertThat(ae.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+              assertThat(ae.code()).isEqualTo("OTP_INVALID");
+            });
+  }
+
+  @Test
+  void verifyOtpRejectsExpiredChallenge() {
+    OtpChallenge challenge = new OtpChallenge();
+    challenge.setPhoneE164("9876543210");
+    challenge.setCodeHash("hash");
+    challenge.setExpiresAt(Instant.now().minusSeconds(5));
+    when(otpChallengeRepository.findTopByPhoneE164AndConsumedAtIsNullOrderByCreatedAtDesc("9876543210"))
+        .thenReturn(Optional.of(challenge));
+
+    assertThatThrownBy(() -> authService.verifyOtp("9876543210", "482901"))
+        .isInstanceOf(ApiException.class)
+        .satisfies(
+            ex -> {
+              ApiException ae = (ApiException) ex;
+              assertThat(ae.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+              assertThat(ae.code()).isEqualTo("OTP_EXPIRED");
+            });
+    verify(passwordEncoder, never()).matches(any(), any());
   }
 
   @Test
@@ -111,7 +169,7 @@ class AuthServiceTest {
 
     when(otpChallengeRepository.findTopByPhoneE164AndConsumedAtIsNullOrderByCreatedAtDesc("9876543210"))
         .thenReturn(Optional.of(challenge));
-    when(passwordEncoder.matches("123456", "hash")).thenReturn(true);
+    when(passwordEncoder.matches("482901", "hash")).thenReturn(true);
     when(userRepository.findByPhoneE164("9876543210")).thenReturn(Optional.of(user));
     when(adminUserRepository.findByPhoneE164("9876543210")).thenReturn(Optional.of(employee));
     when(userRepository.getReferenceById(userId)).thenReturn(user);
@@ -121,7 +179,7 @@ class AuthServiceTest {
     when(appProperties.jwt()).thenReturn(jwtProperties);
     when(jwtProperties.accessTtlSeconds()).thenReturn(900);
 
-    AuthService.VerifyPayload payload = authService.verifyOtp("9876543210", "123456");
+    AuthService.VerifyPayload payload = authService.verifyOtp("9876543210", "482901");
 
     assertThat(payload.data()).containsEntry("accessToken", "access-token");
     assertThat(user.getRole()).isEqualTo("sales");

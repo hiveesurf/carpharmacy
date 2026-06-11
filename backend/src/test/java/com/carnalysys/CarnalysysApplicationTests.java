@@ -1,8 +1,11 @@
 package com.carnalysys;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import org.springframework.http.MediaType;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,5 +55,17 @@ class CarnalysysApplicationTests {
         .andExpect(jsonPath("$.success").value(true))
         .andExpect(jsonPath("$.data.status").value("ok"))
         .andExpect(jsonPath("$.data.service").value("carnalysys-api"));
+  }
+
+  /** Guards against stale deploys where PaymentV1Controller lacks create-order (NoResourceFound → 500). */
+  @Test
+  void createOrderEndpointIsMapped() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/payments/create-order")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"amount\":1000}"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
   }
 }

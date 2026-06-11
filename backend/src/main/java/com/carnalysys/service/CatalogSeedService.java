@@ -36,7 +36,7 @@ public class CatalogSeedService {
   private final AdminUserRepository adminUserRepository;
   private final ObjectMapper objectMapper;
 
-  /** Demo OTP phone (see {@code app.otp.demo-code}); must match migration V18 backfill. */
+  /** Seed super-admin phone; must match migration V18 backfill. Login uses real Twilio OTP. */
   private static final String SEED_ADMIN_PHONE = "9876543210";
 
   public CatalogSeedService(

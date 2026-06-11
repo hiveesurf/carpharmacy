@@ -25,30 +25,18 @@
 - `APP_PAYMENT_WEBHOOK_SECRET`
 - `APP_CORS_ALLOWED_ORIGINS`
 
-## Firebase OTP variables
+## Twilio / WhatsApp variables (login OTP + business notifications)
 
-Frontend (`.env.local`, `.env.uat`, `.env.production` as applicable):
+Backend (`backend/.env.local`, `.env.uat`, `.env.prod` as applicable):
 
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_AUTH_DOMAIN`
-- `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_APP_ID`
-- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `WHATSAPP_ENABLED` — `true` to send login OTP and business notifications via Twilio
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`
+- `TWILIO_WHATSAPP_TEMPLATE_OTP_SID` — login OTP template (falls back to plain text if unset)
+- `TWILIO_WHATSAPP_TEMPLATE_DELIVERY_OTP_SID`, `TWILIO_WHATSAPP_TEMPLATE_LOW_STOCK_SID`
+- `TWILIO_WHATSAPP_TEMPLATE_PLACED_SID`, `_CONFIRMED_`, `_PROCESSING_`, `_SHIPPED_`, `_DELIVERED_`, `_CANCELLED_` — order status
+- `ADMIN_WHATSAPP_NUMBER` — low-stock WhatsApp recipient
 
-Backend (choose one credential mode):
-
-- Inline:
-  - `FIREBASE_PROJECT_ID`
-  - `FIREBASE_CLIENT_EMAIL`
-  - `FIREBASE_PRIVATE_KEY`
-- Or file path:
-  - `FIREBASE_SERVICE_ACCOUNT_PATH`
-
-Notes:
-
-- Firebase is used only for login OTP.
-- Twilio remains in use for WhatsApp order status and low-stock alerts.
-- Legacy `POST /auth/send-otp` and `POST /auth/verify-otp` remain available for rollback.
+Login uses `POST /auth/send-otp` and `POST /auth/verify-otp` (no third-party client SDK on the frontend).
 
 ## Frontend API strategy (canonical)
 

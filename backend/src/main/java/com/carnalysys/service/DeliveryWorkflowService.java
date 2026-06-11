@@ -22,7 +22,6 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -58,7 +57,6 @@ public class DeliveryWorkflowService {
   private final AppProperties appProperties;
   private final UploadStorageService uploadStorageService;
   private final DeliveryOtpDerivationService deliveryOtpDerivationService;
-  private final Environment environment;
 
   public DeliveryWorkflowService(
       OrderRepository orderRepository,
@@ -70,8 +68,7 @@ public class DeliveryWorkflowService {
       PasswordEncoder passwordEncoder,
       AppProperties appProperties,
       UploadStorageService uploadStorageService,
-      DeliveryOtpDerivationService deliveryOtpDerivationService,
-      Environment environment) {
+      DeliveryOtpDerivationService deliveryOtpDerivationService) {
     this.orderRepository = orderRepository;
     this.orderLineRepository = orderLineRepository;
     this.adminUserRepository = adminUserRepository;
@@ -82,24 +79,11 @@ public class DeliveryWorkflowService {
     this.appProperties = appProperties;
     this.uploadStorageService = uploadStorageService;
     this.deliveryOtpDerivationService = deliveryOtpDerivationService;
-    this.environment = environment;
   }
 
   @PostConstruct
   void logDeliveryOtpMode() {
-    String profiles = String.join(",", environment.getActiveProfiles());
-    if (profiles.isBlank()) {
-      profiles = "(none)";
-    }
-    if (DeliveryOtpPolicy.useDemoDeliveryOtp(environment, appProperties)) {
-      log.info(
-          "Delivery OTP: demo mode ENABLED (activeProfiles={}, app.delivery.demo-otp-enabled=true, uses app.otp.demo-code)",
-          profiles);
-    } else {
-      log.info(
-          "Delivery OTP: dynamic HMAC-derived mode ENABLED (activeProfiles={}, demo disabled for this profile)",
-          profiles);
-    }
+    log.info("Delivery OTP: HMAC-derived mode (no demo/fixed OTP)");
   }
 
   @Transactional
@@ -131,19 +115,25 @@ public class DeliveryWorkflowService {
   public Map<String, Object> markOutForDelivery(String orderId, String deliveryAdminEmail) {
     OrderEntity order = requireAssignedOrder(orderId, deliveryAdminEmail);
     requireStage(order, DeliveryStage.accepted);
+    OrderStatus beforeStatus = order.getStatus();
     Instant now = Instant.now();
     order.setDeliveryStage(DeliveryStage.otp_pending);
     order.setDeliveryOutForDeliveryAt(now);
     issueDeliveryOtp(order);
     order.setProofPhotoUrl(null);
     order.setUpdatedAt(now);
+    boolean becameShipped = false;
     if (order.getStatus() != OrderStatus.delivered
         && order.getStatus() != OrderStatus.cancelled
         && order.getStatus() != OrderStatus.refunded
         && order.getStatus() != OrderStatus.shipped) {
       order.setStatus(OrderStatus.shipped);
+      becameShipped = true;
     }
     orderRepository.save(order);
+    if (becameShipped) {
+      orderService.notifyCustomerOrderStatusBestEffort(order, beforeStatus, OrderStatus.shipped);
+    }
     notifyCustomerDeliveryOtp(order, false);
     return responseForDeliveryPartner(order);
   }
@@ -464,9 +454,6 @@ public class DeliveryWorkflowService {
         && order.getDeliveryOtpExpiresAt().isBefore(Instant.now())) {
       return null;
     }
-    if (DeliveryOtpPolicy.useDemoDeliveryOtp(environment, appProperties)) {
-      return appProperties.otp().demoCode();
-    }
     String nonce = order.getDeliveryOtpNonce();
     if (nonce == null || nonce.isBlank()) {
       return null;
@@ -479,8 +466,7 @@ public class DeliveryWorkflowService {
   }
 
   private String resolveDeliveryOtp(String orderId, String nonce) {
-    return DeliveryOtpPolicy.resolveOtp(
-        environment, appProperties, deliveryOtpDerivationService, orderId, nonce);
+    return DeliveryOtpPolicy.resolveOtp(deliveryOtpDerivationService, orderId, nonce);
   }
 
   private Map<String, Object> buildDeliveryPartnerMap(OrderEntity order) {

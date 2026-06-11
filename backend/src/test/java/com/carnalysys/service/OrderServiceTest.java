@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.carnalysys.api.ApiException;
+import com.carnalysys.config.AppProperties;
 import com.carnalysys.domain.Cart;
 import com.carnalysys.domain.CartItem;
 import com.carnalysys.domain.OrderEntity;
@@ -32,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -61,8 +63,16 @@ class OrderServiceTest {
   @Mock private WhatsappService whatsappService;
   @Mock private DeliveryWorkflowService deliveryWorkflowService;
   @Mock private LowStockAlertService lowStockAlertService;
+  @Mock private AppProperties appProperties;
+  @Mock private AppProperties.Payment paymentProperties;
 
   @InjectMocks private OrderService orderService;
+
+  @BeforeEach
+  void wirePaymentProvider() {
+    when(appProperties.payment()).thenReturn(paymentProperties);
+    when(paymentProperties.provider()).thenReturn("mockpay");
+  }
 
   @Test
   void placeOrderThrowsWhenCartLinesEmpty() {

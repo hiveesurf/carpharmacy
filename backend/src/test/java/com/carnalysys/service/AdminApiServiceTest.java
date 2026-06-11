@@ -74,7 +74,9 @@ class AdminApiServiceTest {
   @Mock private UserAvatarService userAvatarService;
   @Mock private NotificationService notificationService;
   @Mock private ProductExcelParser productExcelParser;
+  @Mock private LowStockAlertService lowStockAlertService;
   @Mock private DeliveryWorkflowService deliveryWorkflowService;
+  @Mock private WhatsappService whatsappService;
 
   @InjectMocks private AdminApiService adminApiService;
 
@@ -143,6 +145,9 @@ class AdminApiServiceTest {
     verify(orderRepository).save(order);
     assertThat(order.getAssignedDeliveryAdminEmail()).isEqualTo("delivery@test.dev");
     assertThat(order.getAssignedDeliveryAt()).isNotNull();
+    verify(notificationService)
+        .notifySuperAdminAndSalesOrderAssigned(eq("ord_1"), eq("delivery@test.dev"));
+    verify(whatsappService).sendDeliveryAssignmentBestEffort(null, "ord_1");
   }
 
   @Test

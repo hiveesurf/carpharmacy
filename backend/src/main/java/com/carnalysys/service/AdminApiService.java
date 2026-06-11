@@ -125,6 +125,7 @@ public class AdminApiService {
   private final ProductExcelParser productExcelParser;
   private final LowStockAlertService lowStockAlertService;
   private final DeliveryWorkflowService deliveryWorkflowService;
+  private final WhatsappService whatsappService;
 
   public AdminApiService(
       AdminUserRepository adminUserRepository,
@@ -152,7 +153,8 @@ public class AdminApiService {
       NotificationService notificationService,
       ProductExcelParser productExcelParser,
       LowStockAlertService lowStockAlertService,
-      DeliveryWorkflowService deliveryWorkflowService) {
+      DeliveryWorkflowService deliveryWorkflowService,
+      WhatsappService whatsappService) {
     this.adminUserRepository = adminUserRepository;
     this.userRepository = userRepository;
     this.userProfileRepository = userProfileRepository;
@@ -179,6 +181,7 @@ public class AdminApiService {
     this.productExcelParser = productExcelParser;
     this.lowStockAlertService = lowStockAlertService;
     this.deliveryWorkflowService = deliveryWorkflowService;
+    this.whatsappService = whatsappService;
   }
 
   @Transactional(readOnly = true)
@@ -1280,7 +1283,20 @@ public class AdminApiService {
         "order",
         orderId,
         Map.of("orderId", orderId));
+    String assigneeLabel = deliveryAssigneeLabel(delivery);
+    notificationService.notifySuperAdminAndSalesOrderAssigned(orderId, assigneeLabel);
+    whatsappService.sendDeliveryAssignmentBestEffort(delivery.getPhoneE164(), orderId);
     return Map.of("assigned", true, "orderId", orderId, "deliveryAdminEmail", email);
+  }
+
+  private static String deliveryAssigneeLabel(AdminUser delivery) {
+    if (delivery.getFullName() != null && !delivery.getFullName().isBlank()) {
+      return delivery.getFullName().trim();
+    }
+    if (delivery.getPhoneE164() != null && !delivery.getPhoneE164().isBlank()) {
+      return delivery.getPhoneE164().trim();
+    }
+    return delivery.getEmail();
   }
 
   @Transactional(readOnly = true)

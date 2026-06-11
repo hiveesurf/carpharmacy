@@ -24,9 +24,8 @@ public class WebMvcSliceTestConfiguration {
     return new AppProperties(
         new AppProperties.Jwt("unit-test-jwt-secret-placeholder-32b", 3600),
         new AppProperties.RefreshToken(3600),
-        new AppProperties.Otp("000000", 300),
-        new AppProperties.Delivery(900, 30, false),
-        new AppProperties.Firebase(null, null, null, null),
+        new AppProperties.Otp(300),
+        new AppProperties.Delivery(900, 30),
         new AppProperties.Cors("http://localhost:5173"),
         new AppProperties.Payment(
             "mockpay", "rzp_test_key", "rzp_test_secret", "test-webhook-secret", 600, 300000, 30));
