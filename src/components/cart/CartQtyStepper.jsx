@@ -4,7 +4,11 @@ import { Button } from '../ui/Button'
 
 /** Matched “Add to cart” / “Buy now” pills on product cards (same size, orange, rounded). */
 export const PART_CARD_CTA_PILL =
-  'flex min-h-[3rem] w-full items-center justify-center rounded-[1.25rem] bg-accent px-3 font-sans text-[11px] font-bold uppercase tracking-wide text-on-accent shadow-[0_8px_22px_-6px_rgba(255,107,53,0.5)] transition-[filter,transform] hover:brightness-[0.97] active:scale-[0.99] disabled:pointer-events-none disabled:opacity-45 sm:text-xs sm:px-4'
+  'flex min-h-[3rem] w-full min-w-0 items-center justify-center whitespace-nowrap rounded-[1.25rem] bg-accent px-3 font-sans text-[11px] font-bold uppercase tracking-wide text-on-accent shadow-[0_8px_22px_-6px_rgba(255,107,53,0.5)] transition-[filter,transform] hover:brightness-[0.97] active:scale-[0.99] disabled:pointer-events-none disabled:opacity-45 sm:text-xs sm:px-4'
+
+/** Outlined companion pill for “View details” on catalog cards (equal height to {@link PART_CARD_CTA_PILL}). */
+export const PART_CARD_DETAILS_PILL =
+  'flex min-h-[3rem] w-full min-w-0 items-center justify-center whitespace-nowrap rounded-[1.25rem] border border-accent/40 bg-accent/10 px-3 font-sans text-[11px] font-bold uppercase tracking-wide text-accent transition-colors hover:bg-accent/20 sm:text-xs sm:px-4'
 
 /**
  * Compact − qty + control once a line exists in the cart.
@@ -52,7 +56,7 @@ export function CartQtyStepperOrAdd({ partId, maxStock, canAdd, className = '', 
   if (qty <= 0) {
     if (pairedCardLayout) {
       return (
-        <div className={className} onClick={(e) => e.stopPropagation()}>
+        <div className={`w-full min-w-0 ${className}`.trim()} onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             className={PART_CARD_CTA_PILL}
@@ -82,8 +86,8 @@ export function CartQtyStepperOrAdd({ partId, maxStock, canAdd, className = '', 
 
   if (pairedCardLayout) {
     return (
-      <div className={className} onClick={(e) => e.stopPropagation()}>
-        <CartQtyStepper partId={partId} maxStock={maxStock} className="h-12 min-h-[3rem] w-full" />
+      <div className={`w-full min-w-0 ${className}`.trim()} onClick={(e) => e.stopPropagation()}>
+        <CartQtyStepper partId={partId} maxStock={maxStock} className="h-12 min-h-[3rem] w-full min-w-0" />
       </div>
     )
   }

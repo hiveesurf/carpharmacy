@@ -6,6 +6,7 @@ import { useAuth } from '../../context/useAuth'
 import { Button } from '../ui/Button'
 import { getAccessToken } from '../../lib/authTokens.js'
 import { resolveSessionRole } from '../../lib/jwtPayload.js'
+import { postLoginPathForRole } from '../../lib/postLoginPath.js'
 
 const OTP_MIN_LENGTH = 6
 
@@ -127,8 +128,9 @@ export function AuthModals() {
       else {
         reset()
         const role = resolveSessionRole(r.user, getAccessToken())
-        if (['super_admin', 'sales', 'delivery', 'admin'].includes(role)) {
-          navigate('/admin', { replace: true })
+        const staffPath = postLoginPathForRole(role)
+        if (staffPath) {
+          navigate(staffPath, { replace: true })
         }
       }
     } finally {
@@ -283,11 +285,6 @@ export function AuthModals() {
                 </button>
               </form>
             )}
-
-            <p className="mt-8 border-t border-fog/10 pt-6 text-center text-[11px] text-mist">
-              Access token stays in memory; refresh token is an httpOnly cookie when Spring Boot is running on{' '}
-              <code className="text-accent">:8080</code> (Vite proxies <code className="text-accent">/api</code> in dev).
-            </p>
           </motion.div>
         </>
       )}

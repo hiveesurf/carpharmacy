@@ -10,6 +10,7 @@ import com.carnalysys.web.support.AuthSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.Map;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -57,6 +58,13 @@ public class PaymentV1Controller {
       HttpServletRequest req, @RequestBody Map<String, Object> body) {
     return ApiResponses.ok(
         req, paymentGatewayService.confirmRazorpayCheckout(AuthSupport.requireUser(), body));
+  }
+
+  @PostMapping("/{orderId}/cancel-attempt")
+  public ApiEnvelope<Map<String, Object>> cancelAttempt(
+      HttpServletRequest req, @PathVariable String orderId) {
+    return ApiResponses.ok(
+        req, paymentGatewayService.cancelRazorpayPaymentAttempt(AuthSupport.requireUser(), orderId));
   }
 
   @PostMapping("/webhook")

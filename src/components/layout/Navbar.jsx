@@ -23,6 +23,7 @@ import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
 import { searchProductsQuick } from '../../services/productService.js'
 import { loadWishlist } from '../../services/wishlistService.js'
 import { useNotifications } from '../../context/useNotifications.js'
+import { postLoginPathForRole } from '../../lib/postLoginPath.js'
 import {
   formatPublicIdentityInitials,
   formatPublicIdentityLabel,
@@ -80,6 +81,7 @@ export function Navbar() {
   const { user, isAdmin, signOut, openAuth, authHydrated, sessionRole } = useAuth()
   const adminButtonLabel =
     sessionRole === 'delivery' || user?.role === 'delivery' ? 'Delivery' : 'Admin'
+  const staffDashboardPath = postLoginPathForRole(sessionRole ?? user?.role)
   const identityLabel = user ? formatPublicIdentityLabel(user, sessionRole) : ''
   const identityInitials = user ? formatPublicIdentityInitials(user, sessionRole) : '?'
 
@@ -340,9 +342,9 @@ export function Navbar() {
 
           {user ? (
             <div className="hidden items-center gap-2 lg:flex">
-              {isAdmin && (
+              {isAdmin && staffDashboardPath && (
                 <Link
-                  to="/admin"
+                  to={staffDashboardPath}
                   className="flex h-10 items-center gap-1 rounded-xl border border-accent/50 px-3 font-sans text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
                   title={`${adminButtonLabel} dashboard`}
                 >
@@ -495,9 +497,9 @@ export function Navbar() {
                       Sign out
                     </button>
                   </div>
-                  {isAdmin && (
+                  {isAdmin && staffDashboardPath && (
                     <Link
-                      to="/admin"
+                      to={staffDashboardPath}
                       className="flex items-center gap-2 rounded-xl border border-accent/40 py-2 pl-3 font-semibold text-accent"
                       onClick={() => setOpen(false)}
                     >

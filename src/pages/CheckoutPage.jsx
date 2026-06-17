@@ -19,6 +19,7 @@ import {
   validateAddressForm,
 } from '../lib/addressHelpers.js'
 import { getFetchErrorMessage } from '../lib/apiErrorMessage.js'
+import { shouldRedirectCheckoutToCart } from '../lib/checkoutGuard.js'
 
 const STEPS = [
   { id: 'address', label: 'Address', icon: MapPin },
@@ -168,7 +169,7 @@ export function CheckoutPage() {
   const navigate = useNavigate()
   const apiOn = Boolean(apiV1Base())
   const { user, authHydrated, openAuth } = useAuth()
-  const { lineItems, itemCount, subtotal, cartLoading, cartError, retryCart, refreshCart } = useCart()
+  const { lineItems, itemCount, subtotal, cartLoading, cartError, retryCart, clearCart, refreshCart } = useCart()
 
   const [step, setStep] = useState('address')
   const [stepError, setStepError] = useState(null)
@@ -182,6 +183,20 @@ export function CheckoutPage() {
   const [addrSaving, setAddrSaving] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState('upi')
   const [placeBusy, setPlaceBusy] = useState(false)
+  /** True from Place Order click until success navigation or hard failure (no order). */
+  const [checkoutActive, setCheckoutActive] = useState(false)
+  /** Order returned by the server; source of truth after cart is cleared. */
+  const [createdOrder, setCreatedOrder] = useState(null)
+  /** Snapshot of review lines so UI does not depend on cart after order creation. */
+  const [reviewLines, setReviewLines] = useState(null)
+
+  const checkoutStarted = checkoutActive || placeBusy || Boolean(createdOrder?.id)
+
+  const displayLines = reviewLines ?? lineItems
+  const displaySubtotal = useMemo(
+    () => displayLines.reduce((sum, line) => sum + Number(line.lineTotal ?? 0), 0),
+    [displayLines],
+  )
 
   const loadAddr = useCallback(async () => {
     if (!apiOn || !user) return []
@@ -215,6 +230,11 @@ export function CheckoutPage() {
   }
 
   useEffect(() => {
+    if (!authHydrated || !apiOn || !user) return
+    void refreshCart()
+  }, [authHydrated, apiOn, user, refreshCart])
+
+  useEffect(() => {
     if (!authHydrated) return
     if (!user) {
       openAuth()
@@ -225,11 +245,20 @@ export function CheckoutPage() {
   }, [authHydrated, user, apiOn, openAuth, loadAddr])
 
   useEffect(() => {
-    if (!authHydrated || !apiOn || cartLoading) return
-    if (itemCount <= 0 && !cartError) {
-      navigate('/cart', { replace: true })
+    if (
+      !shouldRedirectCheckoutToCart({
+        authHydrated,
+        apiOn,
+        cartLoading,
+        itemCount,
+        cartError,
+        checkoutStarted,
+      })
+    ) {
+      return
     }
-  }, [authHydrated, apiOn, cartLoading, itemCount, cartError, navigate])
+    navigate('/cart', { replace: true })
+  }, [authHydrated, apiOn, cartLoading, itemCount, cartError, checkoutStarted, navigate])
 
   const selectedAddress = useMemo(
     () => addresses.find((a) => String(a.id) === String(selectedAddressId)) ?? null,
@@ -253,6 +282,7 @@ export function CheckoutPage() {
       setStepError('Please select a payment method.')
       return
     }
+    setReviewLines(lineItems)
     setStep('review')
   }
 
@@ -311,18 +341,22 @@ export function CheckoutPage() {
       setStepError('Please select a payment method.')
       return
     }
-    if (itemCount <= 0) {
+    const linesForOrder = reviewLines ?? lineItems
+    if (linesForOrder.length <= 0) {
       setStepError('Your cart is empty.')
       return
     }
+    setReviewLines(linesForOrder)
+    setCheckoutActive(true)
     setPlaceBusy(true)
     try {
       const { order } = await placeOrderWithPayment({
         addressId: selectedAddressId,
         paymentMethod,
         user,
-        refreshCart,
+        clearCart,
       })
+      setCreatedOrder(order)
       navigate(`/orders/confirmation/${encodeURIComponent(order.id)}`, {
         replace: true,
         state: { order, address: selectedAddress },
@@ -330,15 +364,19 @@ export function CheckoutPage() {
     } catch (e) {
       const placed = e?.placedOrder
       if (placed?.id) {
+        setCreatedOrder(placed)
+        await clearCart()
         navigate(`/orders/confirmation/${encodeURIComponent(placed.id)}`, {
+          replace: true,
           state: {
             order: placed,
             address: selectedAddress,
-            paymentIssue: getFetchErrorMessage(e),
           },
         })
         return
       }
+      setCheckoutActive(false)
+      setReviewLines(null)
       setStepError(getFetchErrorMessage(e))
     } finally {
       setPlaceBusy(false)
@@ -584,15 +622,17 @@ export function CheckoutPage() {
           {step === 'review' ? (
             <ActiveStepCard icon={Package} title="Review order">
               <ul className="space-y-4">
-                {lineItems.map(({ part, qty, lineTotal }) => (
+                {displayLines.map(({ part, qty, lineTotal }) => (
                   <CartLineRow key={part.id} part={part} qty={qty} lineTotal={lineTotal} compact readOnly />
                 ))}
               </ul>
-              <p className="mt-3 font-sans text-xs text-mist">
-                <Link to="/cart" className="font-semibold text-accent hover:underline">
-                  Edit cart
-                </Link>
-              </p>
+              {!checkoutStarted ? (
+                <p className="mt-3 font-sans text-xs text-mist">
+                  <Link to="/cart" className="font-semibold text-accent hover:underline">
+                    Edit cart
+                  </Link>
+                </p>
+              ) : null}
 
               <dl className="mt-6 space-y-3 rounded-xl border border-steel/50 bg-slate/30 px-4 py-4 font-sans text-sm">
                 <div>
@@ -607,7 +647,7 @@ export function CheckoutPage() {
                 </div>
                 <div className="flex justify-between gap-4 border-t border-steel/40 pt-3">
                   <dt className="font-mono text-xs uppercase text-mist">Order total</dt>
-                  <dd className="font-display text-xl font-bold text-accent">{formatInr(subtotal)}</dd>
+                  <dd className="font-display text-xl font-bold text-accent">{formatInr(displaySubtotal)}</dd>
                 </div>
               </dl>
 
@@ -620,7 +660,7 @@ export function CheckoutPage() {
                   size="lg"
                   className="flex-1"
                   type="button"
-                  disabled={placeBusy || cartLoading || itemCount <= 0}
+                  disabled={placeBusy || cartLoading || (displayLines.length <= 0 && !checkoutStarted)}
                   onClick={() => void handlePlaceOrder()}
                 >
                   {placeBusy

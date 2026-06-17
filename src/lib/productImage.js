@@ -92,3 +92,45 @@ export function partDisplayImage(part) {
   }
   return getPartImage(part.imageKey || 'brakes')
 }
+
+/**
+ * Build a normalized gallery for detail pages using the same primary rules as listing cards.
+ * @param {Record<string, unknown> | null | undefined} part
+ */
+export function resolvePartDisplayGallery(part) {
+  if (!part) return []
+  /** @type {{ src: string, alt: string }[]} */
+  const items = []
+  const add = (rawSrc, rawAlt) => {
+    const src = resolveApiAssetUrl(typeof rawSrc === 'string' ? rawSrc : '')
+    if (!src) return
+    if (items.some((item) => item.src === src)) return
+    const alt =
+      typeof rawAlt === 'string' && rawAlt.trim()
+        ? rawAlt.trim()
+        : String(part.name || 'Product')
+    items.push({ src, alt })
+  }
+
+  const primary = partDisplayImage(part)
+  if (primary?.src) add(primary.src, primary.alt)
+
+  if (Array.isArray(part.galleryUrls)) {
+    for (const g of part.galleryUrls) {
+      if (g && typeof g === 'object') {
+        add(g.src, g.alt)
+      } else if (typeof g === 'string') {
+        add(g, part.name)
+      }
+    }
+  }
+
+  if (Array.isArray(part.galleryKeys)) {
+    for (const key of part.galleryKeys) {
+      const fallback = getPartImage(key)
+      if (fallback?.src) add(fallback.src, fallback.alt || part.name)
+    }
+  }
+
+  return items
+}

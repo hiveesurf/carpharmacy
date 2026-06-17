@@ -1,17 +1,19 @@
-export const DELIVERY_LIST_PATH = '/admin/deliveries'
+export const DELIVERY_HOME_PATH = '/delivery'
+
+export const DELIVERY_LIST_PATH = '/delivery/orders'
 
 export function deliveryDetailPath(orderId) {
-  return `/admin/deliveries/${encodeURIComponent(orderId)}`
+  return `/delivery/orders/${encodeURIComponent(orderId)}`
 }
 
 export function deliveryOtpPath(orderId) {
-  return `/admin/deliveries/${encodeURIComponent(orderId)}/otp`
+  return `/delivery/orders/${encodeURIComponent(orderId)}/otp`
 }
 
 export function deliveryProofPath(orderId) {
-  return `/admin/deliveries/${encodeURIComponent(orderId)}/proof`
+  return `/delivery/orders/${encodeURIComponent(orderId)}/proof`
 }
 
 export function deliverySuccessPath(orderId) {
-  return `/admin/deliveries/${encodeURIComponent(orderId)}/success`
+  return `/delivery/orders/${encodeURIComponent(orderId)}/success`
 }

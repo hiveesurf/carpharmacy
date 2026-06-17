@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { formatInr, getPartImage } from '../../data/partsCatalog'
+import { formatInr } from '../../data/partsCatalog'
 import { useCart } from '../../context/useCart'
+import { markBuyNowCheckout } from '../../lib/checkoutSession.js'
+import { resolvePartDisplayGallery } from '../../lib/productImage.js'
 import { SafeImg } from '../ui/SafeImg'
 import { Button } from '../ui/Button'
 import { CartQtyStepper, PART_CARD_CTA_PILL } from '../cart/CartQtyStepper'
@@ -21,27 +23,17 @@ function specRows(part) {
  */
 export function PartDetailContent({ part, showKeepBrowsing = false, onKeepBrowsing }) {
   const navigate = useNavigate()
-  const { getQty, addToCart } = useCart()
+  const { getQty, addToCart, replaceCartWith } = useCart()
   const qty = getQty(part.id)
   const leftInStock = Math.max(0, part.totalStock - qty)
   const canAdd = leftInStock > 0
 
   const galleryItems = useMemo(() => {
-    if (part.galleryUrls?.length) {
-      return part.galleryUrls.map((g, i) => ({
-        key: `url-${i}`,
-        src: g.src,
-        alt: typeof g.alt === 'string' && g.alt.trim() ? g.alt : part.name,
-      }))
-    }
-    if (part.galleryKeys?.length) {
-      return part.galleryKeys.map((key) => {
-        const img = getPartImage(key)
-        return { key, src: img.src, alt: img.alt }
-      })
-    }
-    const fallback = getPartImage(part.imageKey)
-    return [{ key: 'fallback', src: fallback.src, alt: fallback.alt }]
+    return resolvePartDisplayGallery(part).map((item, i) => ({
+      key: `img-${i}`,
+      src: item.src,
+      alt: item.alt,
+    }))
   }, [part])
 
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
@@ -70,10 +62,10 @@ export function PartDetailContent({ part, showKeepBrowsing = false, onKeepBrowsi
   }, [part])
 
   async function buyNow() {
-    if (qty <= 0 && canAdd) {
-      await addToCart(part.id, 1)
-    }
+    if (!canAdd) return
+    await replaceCartWith(part.id, 1)
     if (getQty(part.id) <= 0) return
+    markBuyNowCheckout(part.id)
     navigate('/checkout')
   }
 
@@ -90,6 +82,7 @@ export function PartDetailContent({ part, showKeepBrowsing = false, onKeepBrowsi
             <div className="relative aspect-square w-full sm:aspect-[4/3]">
               {primaryImage ? (
                 <SafeImg
+                  key={primaryImage.src}
                   src={primaryImage.src}
                   alt={primaryImage.alt}
                   fw={960}
@@ -118,6 +111,7 @@ export function PartDetailContent({ part, showKeepBrowsing = false, onKeepBrowsi
                   }`}
                 >
                   <SafeImg
+                    key={item.src}
                     src={item.src}
                     alt=""
                     fw={144}

@@ -242,9 +242,7 @@ public class CatalogService {
                 AdminProductSpecifications.build(search, lowStockOnly), pageable)
             : productRepository.findAll(pageable);
     List<Map<String, Object>> items = toAdminMaps(result.getContent());
-    long lowStockCount =
-        productRepository.countByDeletedAtIsNullAndStockQuantityLessThanEqual(
-            AdminProductSpecifications.LOW_STOCK_THRESHOLD);
+    long lowStockCount = productRepository.count(AdminProductSpecifications.adminLowStockCount());
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("items", items);
     out.put("page", result.getNumber());
@@ -258,8 +256,7 @@ public class CatalogService {
 
   @Transactional(readOnly = true)
   public long countLowStockForAdmin() {
-    return productRepository.countByDeletedAtIsNullAndStockQuantityLessThanEqual(
-        AdminProductSpecifications.LOW_STOCK_THRESHOLD);
+    return productRepository.count(AdminProductSpecifications.adminLowStockCount());
   }
 
   @Transactional(readOnly = true)

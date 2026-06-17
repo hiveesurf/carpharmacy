@@ -11,7 +11,7 @@ import { useCart } from '../context/useCart'
 import { useAuth } from '../context/useAuth'
 import { SafeImg } from '../components/ui/SafeImg'
 import { Button } from '../components/ui/Button'
-import { CartQtyStepperOrAdd } from '../components/cart/CartQtyStepper'
+import { CartQtyStepperOrAdd, PART_CARD_DETAILS_PILL } from '../components/cart/CartQtyStepper'
 import { publicUrl } from '../lib/publicUrl'
 import { apiV1Base } from '../api/client.js'
 import { fetchProducts } from '../services/productService.js'
@@ -987,15 +987,14 @@ function CatalogPartRow({ part, img, useApi, wished, onWishToggle, catalogReturn
           {part.compatibleCars.join(', ')}
         </p>
 
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-stretch">
-          <div className="min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
-            <CartQtyStepperOrAdd partId={part.id} maxStock={part.totalStock} canAdd={canAdd} />
-          </div>
-          <Link
-            to={detailPath}
-            state={detailState}
-            className="inline-flex min-h-[3rem] flex-1 items-center justify-center rounded-[1.25rem] border border-accent/40 bg-accent/10 px-3 font-sans text-[11px] font-bold uppercase tracking-wide text-accent transition-colors hover:bg-accent/20 sm:text-xs"
-          >
+        <div className="mt-4 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 min-[420px]:gap-3">
+          <CartQtyStepperOrAdd
+            partId={part.id}
+            maxStock={part.totalStock}
+            canAdd={canAdd}
+            pairedCardLayout
+          />
+          <Link to={detailPath} state={detailState} className={PART_CARD_DETAILS_PILL}>
             View details
           </Link>
         </div>

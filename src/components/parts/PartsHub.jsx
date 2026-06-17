@@ -11,6 +11,7 @@ import {
   getPartById,
 } from '../../data/partsCatalog'
 import { useCart } from '../../context/useCart'
+import { markBuyNowCheckout } from '../../lib/checkoutSession.js'
 import { useAuth } from '../../context/useAuth'
 import { SafeImg } from '../ui/SafeImg'
 import { Section } from '../ui/Section'
@@ -49,7 +50,7 @@ export function PartsHub() {
   const [detailRetryKey, setDetailRetryKey] = useState(0)
   const [wishIds, setWishIds] = useState(() => new Set())
   const navigate = useNavigate()
-  const { getQty, addToCart } = useCart()
+  const { getQty, addToCart, replaceCartWith } = useCart()
 
   const catalogReady = useApi ? !apiLoading : catalogReadyLocal
 
@@ -403,14 +404,13 @@ export function PartsHub() {
                       </p>
 
                       <div
-                        className="mt-auto flex gap-2 pt-5 sm:flex-row sm:items-stretch"
+                        className="mt-auto grid grid-cols-1 gap-2 pt-5 min-[420px]:grid-cols-2 min-[420px]:gap-3"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <CartQtyStepperOrAdd
                           partId={part.id}
                           maxStock={part.totalStock}
                           canAdd={canAdd}
-                          className="min-w-0 flex-1 basis-0"
                           pairedCardLayout
                         />
                         <button
@@ -419,13 +419,12 @@ export function PartsHub() {
                           onClick={async (e) => {
                             e.stopPropagation()
                             if (!canAdd) return
-                            if (getQty(part.id) <= 0) {
-                              await addToCart(part.id, 1)
-                            }
+                            await replaceCartWith(part.id, 1)
                             if (getQty(part.id) <= 0) return
+                            markBuyNowCheckout(part.id)
                             navigate('/checkout')
                           }}
-                          className={`${PART_CARD_CTA_PILL} min-w-0 flex-1 basis-0`}
+                          className={PART_CARD_CTA_PILL}
                         >
                           Buy now
                         </button>

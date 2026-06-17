@@ -12,11 +12,12 @@ import {
   X,
 } from 'lucide-react'
 import { useAuth } from '../context/useAuth.js'
+import { DELIVERY_HOME_PATH, DELIVERY_LIST_PATH } from '../lib/deliveryRoutes.js'
 
 function DeliveryBottomNav() {
   const tabs = [
-    { to: '/admin', end: true, label: 'Home', icon: LayoutDashboard },
-    { to: '/admin/deliveries', label: 'Deliveries', icon: ShoppingBag },
+    { to: DELIVERY_HOME_PATH, end: true, label: 'Home', icon: LayoutDashboard },
+    { to: DELIVERY_LIST_PATH, label: 'Deliveries', icon: ShoppingBag },
   ]
   return (
     <nav
@@ -46,11 +47,23 @@ function DeliveryBottomNav() {
 }
 
 function navByRole(role) {
+  if (role === 'delivery') {
+    return [
+      {
+        to: DELIVERY_HOME_PATH,
+        end: true,
+        label: 'Dashboard',
+        icon: LayoutDashboard,
+      },
+      { to: DELIVERY_LIST_PATH, label: 'My deliveries', icon: ShoppingBag },
+    ]
+  }
+
   const base = [
     {
       to: '/admin',
       end: true,
-      label: role === 'delivery' ? 'Dashboard' : 'Analytics',
+      label: 'Analytics',
       icon: LayoutDashboard,
     },
   ]
@@ -63,11 +76,7 @@ function navByRole(role) {
     base.push({ to: '/admin/users', label: 'Users', icon: Users })
     base.push({ to: '/admin/employees', label: 'Employees', icon: UserCog })
   }
-  if (role === 'delivery') {
-    base.push({ to: '/admin/deliveries', label: 'My deliveries', icon: ShoppingBag })
-  } else {
-    base.push({ to: '/admin/orders', label: 'Orders', icon: ShoppingBag })
-  }
+  base.push({ to: '/admin/orders', label: 'Orders', icon: ShoppingBag })
   return base
 }
 

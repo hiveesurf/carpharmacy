@@ -11,6 +11,7 @@
     "build:uat": "vite build --mode uat",
     "build:prod": "vite build --mode production",
     "lint": "eslint .",
+    "test:unit": "node --test src/lib/**/*.test.js",
     "preview": "vite preview",
     "predeploy": "npm run build && cp dist/index.html dist/404.html",
     "deploy": "gh-pages -d dist"

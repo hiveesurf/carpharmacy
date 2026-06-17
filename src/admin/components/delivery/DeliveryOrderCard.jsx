@@ -3,7 +3,7 @@ import { Phone, MessageCircle, Navigation, ChevronRight } from 'lucide-react'
 import { deriveDeliveryUiStage, formatDeliveryAddress } from '../../../lib/deliveryUiStage.js'
 import { deliveryDetailPath } from '../../../lib/deliveryRoutes.js'
 import { telHref, whatsAppHref, googleMapsDirectionsHref } from '../../../lib/deliveryLinks.js'
-import { customerInitials, resolveDeliveryPayment } from '../../../lib/deliveryPayment.js'
+import { customerInitials, resolveDeliveryPayment, resolveDeliveryPaymentView } from '../../../lib/deliveryPayment.js'
 import { DeliveryStageBadge } from './DeliveryStageBadge.jsx'
 import { DeliveryPaymentBadge } from './DeliveryPaymentDisplay.jsx'
 
@@ -36,6 +36,7 @@ export function DeliveryOrderCard({ order }) {
   const wa = whatsAppHref(phone, `Hi, I am your delivery partner for order ${order?.id}.`)
   const maps = googleMapsDirectionsHref(order?.shippingAddress)
   const pay = resolveDeliveryPayment(order)
+  const paymentView = resolveDeliveryPaymentView(order)
 
   return (
     <article className="overflow-hidden rounded-xl bg-white px-2.5 py-1.5 shadow-[0_1px_4px_rgba(15,17,17,0.08)] sm:px-3 sm:py-2">
@@ -64,7 +65,12 @@ export function DeliveryOrderCard({ order }) {
 
           <p className="mt-1 text-[10px] text-[#888c8c] sm:text-[11px]">
             Assigned {formatAssignedTime(order?.assignedDeliveryAt)}
-            {pay.showAmountToCollect && pay.amountFormatted ? (
+            {paymentView.listLineText ? (
+              <span className="text-[#565959]">
+                {' '}
+                · {paymentView.listLineText}
+              </span>
+            ) : pay.showAmountToCollect && pay.amountFormatted ? (
               <span className="text-[#565959]">
                 {' '}
                 · Collect <span className="font-bold tabular-nums text-[#0f1111]">{pay.amountFormatted}</span>

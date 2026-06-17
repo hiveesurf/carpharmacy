@@ -42,21 +42,21 @@ export function WhyChooseUs() {
       backdrop={sectionBackdrops.why}
     >
       <motion.ul
-        className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6"
+        className="grid items-stretch gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6"
         variants={staggerContainer}
         initial="hidden"
         whileInView="visible"
         viewport={viewportOnce}
       >
         {points.map(({ n, title, text, icon: Icon }) => (
-          <motion.li key={n} variants={staggerItem} className="relative">
+          <motion.li key={n} variants={staggerItem} className="relative h-full">
             <p
               className="pointer-events-none absolute -left-1 -top-4 font-display text-7xl font-black leading-none text-steel/90 select-none sm:text-8xl"
               aria-hidden
             >
               {n}
             </p>
-            <div className="relative rounded-xl border border-steel/70 bg-ink p-6 pt-10 shadow-[0_10px_36px_-16px_rgba(0,0,0,0.1)] transition-[transform,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-[0_20px_44px_-18px_rgba(0,51,102,0.15)]">
+            <div className="relative flex h-full flex-col rounded-xl border border-steel/70 bg-ink p-6 pt-10 shadow-[0_10px_36px_-16px_rgba(0,0,0,0.1)] transition-[transform,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-[0_20px_44px_-18px_rgba(0,51,102,0.15)]">
               <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-accent/12 text-accent">
                 <Icon className="h-6 w-6" strokeWidth={1.5} aria-hidden />
               </div>

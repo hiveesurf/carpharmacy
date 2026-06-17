@@ -3,6 +3,7 @@ package com.carnalysys.service;
 import com.carnalysys.domain.Product;
 import com.carnalysys.domain.ProductLowStockAlertState;
 import com.carnalysys.repo.ProductLowStockAlertStateRepository;
+import com.carnalysys.util.ProductStockSupport;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.slf4j.Logger;
@@ -37,8 +38,17 @@ public class LowStockAlertService {
     this.alertStateRepository = alertStateRepository;
   }
 
+  public static boolean isLowStock(Product product) {
+    if (product == null) {
+      return false;
+    }
+    return ProductStockSupport.isAdminLowStock(
+        product.getStockQuantity(), AdminProductSpecifications.LOW_STOCK_THRESHOLD);
+  }
+
   public static boolean isLowStock(int stockQuantity) {
-    return stockQuantity <= AdminProductSpecifications.LOW_STOCK_THRESHOLD;
+    return ProductStockSupport.isAdminLowStock(
+        stockQuantity, AdminProductSpecifications.LOW_STOCK_THRESHOLD);
   }
 
   public static String severityForStock(int stockQuantity) {
@@ -78,7 +88,7 @@ public class LowStockAlertService {
       current = newStock;
     }
 
-    if (!isLowStock(current)) {
+    if (!isLowStock(product)) {
       log.info(
           "Low-stock check cleared (above threshold): productId={}, currentStock={}",
           productId,

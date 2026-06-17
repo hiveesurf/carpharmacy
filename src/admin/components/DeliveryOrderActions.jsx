@@ -23,7 +23,7 @@ export function DeliveryOrderActions({ order, busyId, onBusy, onUpdated, onError
       onUpdated={onUpdated}
       error={localError}
       onError={handleError}
-      listPath="/admin/deliveries"
+      listPath="/admin/orders"
     />
   )
 }

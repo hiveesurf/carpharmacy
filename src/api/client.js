@@ -7,12 +7,13 @@ import { getApiSessionId } from './session.js'
  * @returns {string|null} Base URL including `/api/v1`, or null when static-only.
  */
 export function apiV1Base() {
-  const env = import.meta.env.VITE_API_BASE?.trim()
+  const envObj = import.meta?.env ?? {}
+  const env = envObj.VITE_API_BASE?.trim()
   if (env) {
     const u = env.replace(/\/$/, '')
     return u.endsWith('/api/v1') ? u : `${u}/api/v1`
   }
-  if (import.meta.env.DEV) return '/api/v1'
+  if (Boolean(envObj.DEV)) return '/api/v1'
   return null
 }
 

@@ -370,7 +370,7 @@ public class WhatsappService {
 
   private String deliveryPartnerOrderLink(String orderId) {
     String oid = orderId != null ? orderId.trim() : "";
-    return publicWebPath("/admin/deliveries/" + oid);
+    return publicWebPath("/delivery/orders/" + oid);
   }
 
   private String publicWebPath(String path) {

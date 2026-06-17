@@ -2,7 +2,7 @@ import * as adminService from '../services/adminService.js'
 import { PART_IMAGES } from '../content/partImages.js'
 import { getPartImage } from '../data/partsCatalog.js'
 import { resolveApiAssetUrl } from './resolveApiAssetUrl.js'
-import { ADMIN_LOW_STOCK_THRESHOLD, isAdminLowStock } from './adminProductStock.js'
+import { ADMIN_LOW_STOCK_THRESHOLD, isAdminInStock, isAdminLowStock } from './adminProductStock.js'
 
 /**
  * @param {...unknown} candidates
@@ -148,6 +148,7 @@ export function stockBarColorClass(product, threshold) {
   const stock = Math.max(0, Math.floor(Number(product?.totalStock ?? 0)))
   if (stock <= 0) return 'bg-steel/50'
   if (isAdminLowStock(product, threshold)) return 'bg-flare'
+  if (isAdminInStock(product, threshold)) return 'bg-emerald-500'
   if (stock <= threshold * 2) return 'bg-amber-500'
   return 'bg-emerald-500'
 }

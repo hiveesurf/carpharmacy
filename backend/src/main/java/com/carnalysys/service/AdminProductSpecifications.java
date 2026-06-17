@@ -15,13 +15,21 @@ final class AdminProductSpecifications {
   static Specification<Product> build(String search, boolean lowStockOnly) {
     Specification<Product> spec = notDeleted().and(searchMatches(search));
     if (lowStockOnly) {
-      spec = spec.and(stockAtOrBelow(LOW_STOCK_THRESHOLD));
+      spec = spec.and(lowStock(LOW_STOCK_THRESHOLD));
     }
     return spec;
   }
 
-  private static Specification<Product> stockAtOrBelow(int maxInclusive) {
-    return (root, query, cb) -> cb.lessThanOrEqualTo(root.get("stockQuantity"), maxInclusive);
+  /** Active products with stock in (0, threshold]. */
+  static Specification<Product> adminLowStockCount() {
+    return notDeleted().and(lowStock(LOW_STOCK_THRESHOLD));
+  }
+
+  private static Specification<Product> lowStock(int threshold) {
+    return (root, query, cb) ->
+        cb.and(
+            cb.greaterThan(root.get("stockQuantity"), 0),
+            cb.lessThanOrEqualTo(root.get("stockQuantity"), threshold));
   }
 
   private static Specification<Product> notDeleted() {

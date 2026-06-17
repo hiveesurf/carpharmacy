@@ -32,3 +32,10 @@ export async function clearRemoteCart() {
   const { data } = await cartApi.deleteEntireCart()
   return data
 }
+
+/** Replaces the remote cart with a single product line (Buy Now). */
+export async function replaceRemoteCart(productId, quantity = 1) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  await clearRemoteCart()
+  return addCartLine(productId, quantity)
+}

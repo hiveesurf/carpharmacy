@@ -175,6 +175,26 @@ export function CartProvider({ children }) {
     setQuantities({})
   }, [refreshRemoteCartSilently])
 
+  const replaceCartWith = useCallback(
+    async (partId, amount = 1) => {
+      if (apiMode()) {
+        try {
+          await cartService.replaceRemoteCart(partId, amount)
+          await refreshRemoteCartSilently()
+        } catch (e) {
+          setCartError(getFetchErrorMessage(e))
+        }
+        return
+      }
+      const part = PARTS_CATALOG.find((p) => p.id === partId)
+      if (!part) return
+      const qty = Math.min(Math.max(1, Math.floor(Number(amount) || 1)), part.totalStock)
+      if (qty <= 0) return
+      setQuantities({ [partId]: qty })
+    },
+    [refreshRemoteCartSilently],
+  )
+
   const lineItems = useMemo(() => {
     if (apiMode()) {
       if (!remoteSnapshot) return []
@@ -215,6 +235,7 @@ export function CartProvider({ children }) {
       setPartQty,
       removeFromCart,
       clearCart,
+      replaceCartWith,
       lineItems,
       itemCount,
       subtotal,
@@ -233,6 +254,7 @@ export function CartProvider({ children }) {
       setPartQty,
       removeFromCart,
       clearCart,
+      replaceCartWith,
       lineItems,
       itemCount,
       subtotal,

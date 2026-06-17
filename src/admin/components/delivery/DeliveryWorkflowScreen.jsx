@@ -110,7 +110,11 @@ function DeliveredSuccess({ order, nextOrderId, listPath }) {
           <div className="mt-8 flex flex-col gap-3">
             {nextOrderId ? (
               <Link
-                to={`/admin/orders/${encodeURIComponent(nextOrderId)}`}
+                to={
+                  listPath === DELIVERY_LIST_PATH || listPath.startsWith('/delivery/')
+                    ? deliveryDetailPath(nextOrderId)
+                    : `/admin/orders/${encodeURIComponent(nextOrderId)}`
+                }
                 className={DELIVERY_PRIMARY_BTN}
               >
                 Next order

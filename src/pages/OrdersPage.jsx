@@ -5,7 +5,8 @@ import { publicUrl } from '../lib/publicUrl'
 import { useAuth } from '../context/useAuth'
 import { useNotifications } from '../context/useNotifications.js'
 import * as orderService from '../services/orderService.js'
-import * as paymentService from '../services/paymentService.js'
+import { retryRazorpayPayment } from '../lib/checkoutFlow.js'
+import { canRetryOnlinePayment, formatOrderPaymentLabel } from '../lib/orderPaymentNormalize.js'
 import { getFetchErrorMessage } from '../lib/apiErrorMessage.js'
 import { apiV1Base } from '../api/client.js'
 import {
@@ -52,25 +53,19 @@ function statusStyle(s) {
   }
 }
 
-function paymentStatusStyle(paymentStatus) {
-  const status = String(paymentStatus || '').toLowerCase()
-  switch (status) {
-    case 'paid':
-    case 'authorized':
-      return 'bg-accent-muted text-accent ring-accent/35'
-    case 'failed':
-    case 'cancelled':
-      return 'bg-flare-muted text-flare ring-flare/30'
-    case 'refunded':
-      return 'bg-hud/15 text-hud ring-hud/35'
-    default:
-      return 'bg-steel/50 text-mist ring-steel/60'
+function paymentStatusStyle(order) {
+  const paymentStatus = String(order?.paymentStatus || '').toLowerCase()
+  const attempt = String(order?.latestPaymentAttempt?.status || '').toLowerCase()
+  if (paymentStatus === 'paid' || paymentStatus === 'authorized') {
+    return 'bg-accent-muted text-accent ring-accent/35'
   }
-}
-
-function canRetryPayment(paymentStatus) {
-  const status = String(paymentStatus || '').toLowerCase()
-  return status === 'pending' || status === 'failed' || status === 'cancelled'
+  if (paymentStatus === 'failed' || paymentStatus === 'cancelled' || attempt === 'failed' || attempt === 'cancelled') {
+    return 'bg-flare-muted text-flare ring-flare/30'
+  }
+  if (paymentStatus === 'refunded') {
+    return 'bg-hud/15 text-hud ring-hud/35'
+  }
+  return 'bg-steel/50 text-mist ring-steel/60'
 }
 
 export function OrdersPage() {
@@ -208,77 +203,13 @@ export function OrdersPage() {
     }
   }, [searchParams, items])
 
-  async function ensureRazorpayScript() {
-    if (window.Razorpay) return true
-    await new Promise((resolve, reject) => {
-      const existing = document.querySelector('script[data-razorpay-checkout="1"]')
-      if (existing) {
-        existing.addEventListener('load', () => resolve(), { once: true })
-        existing.addEventListener('error', () => reject(new Error('Failed to load Razorpay SDK')), {
-          once: true,
-        })
-        return
-      }
-      const script = document.createElement('script')
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
-      script.async = true
-      script.dataset.razorpayCheckout = '1'
-      script.onload = () => resolve()
-      script.onerror = () => reject(new Error('Failed to load Razorpay SDK'))
-      document.body.appendChild(script)
-    })
-    return Boolean(window.Razorpay)
-  }
-
-  async function openRazorpayRetryCheckout(order) {
-    const init = await paymentService.initiatePayment({ orderId: order.id })
-    const sdkReady = await ensureRazorpayScript()
-    if (!sdkReady || !window.Razorpay) throw new Error('Razorpay SDK not available')
-    await new Promise((resolve, reject) => {
-      const rz = new window.Razorpay({
-        key: init.keyId,
-        amount: init.amount,
-        currency: init.currency || 'INR',
-        name: 'Carnalysys',
-        description: `Order ${order.id}`,
-        order_id: init.razorpayOrderId,
-        prefill: {
-          name: user?.displayName || '',
-          contact: user?.phone || user?.phoneE164 || '',
-          email: user?.email || '',
-        },
-        notes: {
-          order_id: order.id,
-          transaction_id: init.transactionId,
-        },
-        handler: async (response) => {
-          try {
-            await paymentService.confirmPayment({
-              orderId: order.id,
-              razorpayOrderId: response.razorpay_order_id,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature,
-            })
-            resolve()
-          } catch (err) {
-            reject(err)
-          }
-        },
-        modal: {
-          ondismiss: () => reject(new Error('Payment cancelled')),
-        },
-      })
-      rz.open()
-    })
-  }
-
   async function retryPayment(order) {
-    if (!canRetryPayment(order?.paymentStatus)) return
+    if (!canRetryOnlinePayment(order)) return
     setRetryingOrderId(order.id)
     setRetryError(null)
     setRetryErrorOrderId(null)
     try {
-      await openRazorpayRetryCheckout(order)
+      await retryRazorpayPayment({ order, user })
     } catch (e) {
       setRetryError(getFetchErrorMessage(e))
       setRetryErrorOrderId(order.id)
@@ -445,9 +376,9 @@ export function OrdersPage() {
                         {o.status}
                       </span>
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ring-1 ${paymentStatusStyle(o.paymentStatus)}`}
+                        className={`inline-flex rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ring-1 ${paymentStatusStyle(o)}`}
                       >
-                        Payment: {o.paymentStatus || 'pending'}
+                        Payment: {formatOrderPaymentLabel(o)}
                       </span>
                       <span className="font-display text-lg font-bold tabular-nums text-fog">{formatInr(o.total)}</span>
                       <ChevronDown
@@ -580,7 +511,7 @@ export function OrdersPage() {
                           </ul>
                         </div>
                       ) : null}
-                      {canRetryPayment(o.paymentStatus) ? (
+                      {canRetryOnlinePayment(o) ? (
                         <div className="border-t border-steel/40 px-5 py-4">
                           <button
                             type="button"

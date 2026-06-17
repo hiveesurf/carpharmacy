@@ -7,6 +7,9 @@ import { DeliveryContactActions } from '../../components/delivery/DeliveryContac
 import { DeliveryCustomerSummary } from '../../components/delivery/DeliveryCustomerSummary.jsx'
 import { DeliveryPartnerProgressTimeline } from '../../components/delivery/DeliveryPartnerProgressTimeline.jsx'
 import { DeliveryStageBadge } from '../../components/delivery/DeliveryStageBadge.jsx'
+import { DeliveryPaymentSummary } from '../../components/delivery/DeliveryPaymentDisplay.jsx'
+import { DeliveryCodConfirmDialog } from '../../components/delivery/DeliveryCodConfirmDialog.jsx'
+import { resolveDeliveryPaymentView } from '../../../lib/deliveryPayment.js'
 import {
   DeliveryPageError,
   DeliveryPageLoading,
@@ -35,6 +38,9 @@ export function DeliveryDetailsPage() {
   const { order, setOrder, loading, error } = useDeliveryOrder(orderId)
   const [actionError, setActionError] = useState(null)
   const [busyId, setBusyId] = useState(null)
+  const [codConfirmOpen, setCodConfirmOpen] = useState(false)
+
+  const paymentView = useMemo(() => resolveDeliveryPaymentView(order), [order])
 
   const workflow = useDeliveryWorkflow({
     order,
@@ -167,6 +173,10 @@ export function DeliveryDetailsPage() {
         <DeliveryPartnerProgressTimeline order={order} uiStage={uiStage} />
       </DeliveryPanelSection>
 
+      <DeliveryPanelSection>
+        <DeliveryPaymentSummary order={order} />
+      </DeliveryPanelSection>
+
       {workflowAction ? (
         <DeliveryPanelSection>
           {workflowAction.title ? (
@@ -198,7 +208,13 @@ export function DeliveryDetailsPage() {
               type="button"
               className={DELIVERY_PRIMARY_BTN_INLINE}
               disabled={busy}
-              onClick={() => void run('delivered')}
+              onClick={() => {
+                if (paymentView.requiresCashConfirmation) {
+                  setCodConfirmOpen(true)
+                  return
+                }
+                void run('delivered')
+              }}
             >
               {busy ? 'Completing…' : 'Mark as delivered'}
             </button>
@@ -255,6 +271,17 @@ export function DeliveryDetailsPage() {
           </div>
         </DeliveryPanelSection>
       ) : null}
+
+      <DeliveryCodConfirmDialog
+        open={codConfirmOpen}
+        order={order}
+        busy={busy}
+        onCancel={() => setCodConfirmOpen(false)}
+        onConfirm={() => {
+          setCodConfirmOpen(false)
+          void run('delivered')
+        }}
+      />
     </DeliveryPageShell>
   )
 }

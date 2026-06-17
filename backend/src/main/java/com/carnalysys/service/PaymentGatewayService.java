@@ -115,6 +115,11 @@ public class PaymentGatewayService {
     return verifyRazorpayCheckout(userId, orderId, razorpayOrderId, razorpayPaymentId, razorpaySignature);
   }
 
+  @Transactional
+  public Map<String, Object> cancelRazorpayPaymentAttempt(UUID userId, String orderId) {
+    return orderService.cancelLatestRazorpayPaymentAttempt(userId, orderId);
+  }
+
   private Map<String, Object> verifyRazorpayCheckout(
       UUID userId,
       String orderId,

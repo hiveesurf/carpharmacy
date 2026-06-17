@@ -12,6 +12,15 @@ export async function verifyPayment(body) {
   return data
 }
 
+export async function cancelPaymentAttempt(orderId) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await apiPost(
+    `/payments/${encodeURIComponent(orderId)}/cancel-attempt`,
+    {},
+  )
+  return data
+}
+
 /** @deprecated Use createPaymentOrder */
 export async function initiatePayment(body) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')

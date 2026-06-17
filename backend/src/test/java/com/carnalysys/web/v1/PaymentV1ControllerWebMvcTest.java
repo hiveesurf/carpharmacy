@@ -94,4 +94,25 @@ class PaymentV1ControllerWebMvcTest extends ControllerSliceTestBase {
         .andExpect(jsonPath("$.data.provider").value("razorpay"))
         .andExpect(jsonPath("$.data.orderId").value("ord_1"));
   }
+
+  @Test
+  void cancelAttemptRequiresAuth() throws Exception {
+    mockMvc
+        .perform(post("/api/v1/payments/ord_1/cancel-attempt").contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void cancelAttemptOk() throws Exception {
+    when(paymentGatewayService.cancelRazorpayPaymentAttempt(org.mockito.ArgumentMatchers.any(), eq("ord_1")))
+        .thenReturn(Map.of("cancelled", true));
+
+    mockMvc
+        .perform(
+            post("/api/v1/payments/ord_1/cancel-attempt")
+                .with(asUser(USER))
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.cancelled").value(true));
+  }
 }

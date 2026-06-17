@@ -3,6 +3,7 @@ package com.carnalysys.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.carnalysys.api.ApiException;
@@ -99,5 +100,16 @@ class CatalogServiceTest {
     assertThat(categories).hasSize(2);
     assertThat(categories.get(0)).containsEntry("id", "body");
     assertThat(categories.get(1)).containsEntry("id", "engine");
+  }
+
+  @Test
+  void countLowStockForAdmin_usesAdminLowStockSpecification() {
+    when(productRepository.count(any(org.springframework.data.jpa.domain.Specification.class)))
+        .thenReturn(2L);
+
+    long count = catalogService.countLowStockForAdmin();
+
+    assertThat(count).isEqualTo(2L);
+    verify(productRepository).count(any(org.springframework.data.jpa.domain.Specification.class));
   }
 }

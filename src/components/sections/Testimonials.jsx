@@ -2,8 +2,17 @@ import { motion } from 'framer-motion'
 import { media } from '../../content/media'
 import { SafeImg } from '../ui/SafeImg'
 import { Section } from '../ui/Section'
-import { staggerContainer, staggerItem, viewportOnce } from '../../lib/motion'
+import { staggerContainer, viewportOnce } from '../../lib/motion'
 import { sectionBackdrops } from '../../content/media'
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] },
+  },
+}
 
 const reviews = [
   {
@@ -40,25 +49,19 @@ export function Testimonials() {
       backdrop={sectionBackdrops.reviews}
     >
       <motion.ul
-        className="grid gap-8 lg:grid-cols-3 lg:gap-6"
+        className="grid grid-cols-1 items-stretch gap-8 lg:grid-cols-3 lg:gap-6"
         variants={staggerContainer}
         initial="hidden"
         whileInView="visible"
         viewport={viewportOnce}
       >
-        {reviews.map((r, i) => (
+        {reviews.map((r) => (
           <motion.li
             key={r.name}
-            variants={staggerItem}
-            className={i === 1 ? 'lg:translate-y-8' : ''}
+            variants={cardVariants}
+            className="m-0 h-full translate-y-0 self-stretch"
           >
-            <motion.figure
-              className="relative h-full overflow-hidden rounded-xl border border-steel/70 bg-slate/40 p-8 pt-12 shadow-[0_10px_36px_-16px_rgba(0,0,0,0.08)]"
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-            >
+            <figure className="relative flex h-full flex-col overflow-hidden rounded-xl border border-steel/70 bg-slate/40 p-8 pt-12 shadow-[0_10px_36px_-16px_rgba(0,0,0,0.08)]">
               <span
                 className="pointer-events-none absolute left-4 top-4 font-display text-8xl font-black leading-none text-accent/[0.12]"
                 aria-hidden
@@ -84,10 +87,10 @@ export function Testimonials() {
               <blockquote className="relative border-l-2 border-accent/35 pl-4 font-sans text-base font-normal leading-relaxed text-mist md:text-[1.05rem]">
                 {r.quote}
               </blockquote>
-              <figcaption className="mt-8 border-t border-fog/10 pt-6">
+              <figcaption className="mt-auto border-t border-fog/10 pt-6">
                 <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-mist/80">Verified purchase flow · demo</p>
               </figcaption>
-            </motion.figure>
+            </figure>
           </motion.li>
         ))}
       </motion.ul>

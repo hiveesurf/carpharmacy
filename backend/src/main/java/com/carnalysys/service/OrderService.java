@@ -204,8 +204,7 @@ public class OrderService {
     }
     order.setTotalInr(total.setScale(2, RoundingMode.HALF_UP));
     boolean paidNow =
-        paymentMethod == PaymentMethod.cod
-            || (paymentTxnIdRaw != null && !paymentTxnIdRaw.isBlank())
+        (paymentTxnIdRaw != null && !paymentTxnIdRaw.isBlank())
             || "success".equalsIgnoreCase(demoPaymentOutcome);
     if ("failed".equalsIgnoreCase(demoPaymentOutcome)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "PAYMENT_FAILED", "Demo payment failed");
@@ -213,6 +212,9 @@ public class OrderService {
     if (paidNow) {
       order.setPaymentStatus(PaymentStatus.paid);
       order.setPaidAt(Instant.now());
+      order.setStatus(OrderStatus.placed);
+    } else if (paymentMethod == PaymentMethod.cod) {
+      order.setPaymentStatus(PaymentStatus.pending);
       order.setStatus(OrderStatus.placed);
     } else if (onlineRazorpay) {
       order.setPaymentStatus(PaymentStatus.pending);
@@ -224,10 +226,11 @@ public class OrderService {
     orderRepository.saveAndFlush(order);
     orderLineRepository.saveAll(persisted);
 
-    if (order.getPaymentStatus() == PaymentStatus.paid) {
+    if (order.getPaymentStatus() == PaymentStatus.paid || paymentMethod == PaymentMethod.cod) {
       decrementStock(lines, productsById);
-      cartService.emptyCart(cart);
     }
+    // Lines are snapshotted on the order; active cart must not retain them for a new checkout.
+    cartService.emptyCart(cart);
 
     writePaymentEvent(order, null, "checkout", "init_" + order.getId(), "payment_initiated");
     if (order.getStatus() == OrderStatus.draft) {
@@ -246,15 +249,29 @@ public class OrderService {
 
     UUID userRef = Objects.requireNonNull(user.getId(), "order user id");
     UserProfile profile = userProfileRepository.findById(userRef).orElse(null);
-    return Map.of("order", toOrderMap(order, persisted, addressIdStr, profile, true, false));
+    return Map.of(
+        "order",
+        toOrderMap(order, persisted, addressIdStr, profile, true, false, null));
   }
 
   @Transactional(readOnly = true)
   public List<Map<String, Object>> listMine(UUID userId) {
     UUID uid = Objects.requireNonNull(userId, "userId");
     UserProfile profile = userProfileRepository.findById(uid).orElse(null);
-    return orderRepository.findByUser_IdOrderByPlacedAtDesc(uid).stream()
-        .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true))
+    List<OrderEntity> orders = orderRepository.findByUser_IdOrderByPlacedAtDesc(uid);
+    Map<String, PaymentTransactionEntity> latestByOrder =
+        latestPaymentAttemptsForOrders(orders.stream().map(OrderEntity::getId).toList());
+    return orders.stream()
+        .map(
+            o ->
+                toOrderMap(
+                    o,
+                    orderLineRepository.findByOrder_Id(o.getId()),
+                    null,
+                    profile,
+                    true,
+                    true,
+                    latestByOrder.get(o.getId())))
         .toList();
   }
 
@@ -266,9 +283,21 @@ public class OrderService {
     var pageResult =
         orderRepository.findByUser_IdOrderByPlacedAtDesc(uid, PageRequest.of(safePage, safeSize));
     UserProfile profile = userProfileRepository.findById(uid).orElse(null);
+    List<OrderEntity> content = pageResult.getContent();
+    Map<String, PaymentTransactionEntity> latestByOrder =
+        latestPaymentAttemptsForOrders(content.stream().map(OrderEntity::getId).toList());
     List<Map<String, Object>> rows =
-        pageResult.getContent().stream()
-            .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true))
+        content.stream()
+            .map(
+                o ->
+                    toOrderMap(
+                        o,
+                        orderLineRepository.findByOrder_Id(o.getId()),
+                        null,
+                        profile,
+                        true,
+                        true,
+                        latestByOrder.get(o.getId())))
             .toList();
     return Map.of(
         "items", rows,
@@ -286,9 +315,23 @@ public class OrderService {
     }
     String normalized = normalizePhone(phoneE164);
     UserProfile profile = userProfileRepository.findById(uid).orElse(null);
-    return orderRepository.findByUser_PhoneE164OrderByPlacedAtDesc(normalized).stream()
-        .filter(o -> o.getUser().getId().equals(uid))
-        .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true))
+    List<OrderEntity> orders =
+        orderRepository.findByUser_PhoneE164OrderByPlacedAtDesc(normalized).stream()
+            .filter(o -> o.getUser().getId().equals(uid))
+            .toList();
+    Map<String, PaymentTransactionEntity> latestByOrder =
+        latestPaymentAttemptsForOrders(orders.stream().map(OrderEntity::getId).toList());
+    return orders.stream()
+        .map(
+            o ->
+                toOrderMap(
+                    o,
+                    orderLineRepository.findByOrder_Id(o.getId()),
+                    null,
+                    profile,
+                    true,
+                    true,
+                    latestByOrder.get(o.getId())))
         .toList();
   }
 
@@ -305,10 +348,22 @@ public class OrderService {
     var pageResult =
         orderRepository.findByUser_PhoneE164OrderByPlacedAtDesc(
             normalized, PageRequest.of(safePage, safeSize));
+    List<OrderEntity> content =
+        pageResult.getContent().stream().filter(o -> o.getUser().getId().equals(uid)).toList();
+    Map<String, PaymentTransactionEntity> latestByOrder =
+        latestPaymentAttemptsForOrders(content.stream().map(OrderEntity::getId).toList());
     List<Map<String, Object>> rows =
-        pageResult.getContent().stream()
-            .filter(o -> o.getUser().getId().equals(uid))
-            .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true))
+        content.stream()
+            .map(
+                o ->
+                    toOrderMap(
+                        o,
+                        orderLineRepository.findByOrder_Id(o.getId()),
+                        null,
+                        profile,
+                        true,
+                        true,
+                        latestByOrder.get(o.getId())))
             .toList();
     return Map.of(
         "items", rows,
@@ -327,8 +382,13 @@ public class OrderService {
             .orElseThrow(
                 () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
     UserProfile profile = userProfileRepository.findById(uid).orElse(null);
+    PaymentTransactionEntity latest =
+        paymentTransactionRepository
+            .findFirstByOrder_IdOrderByAttemptNoDescCreatedAtDesc(o.getId())
+            .orElse(null);
     return Map.of(
-        "order", toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true));
+        "order",
+        toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true, latest));
   }
 
   /** Live delivery OTP for order owner (not cached in list pagination). */
@@ -350,6 +410,18 @@ public class OrderService {
       UserProfile profileOrNull,
       boolean includeHistory,
       boolean includeUserDeliveryOtp) {
+    return toOrderMap(
+        o, lines, addressIdOverride, profileOrNull, includeHistory, includeUserDeliveryOtp, null);
+  }
+
+  private Map<String, Object> toOrderMap(
+      OrderEntity o,
+      List<OrderLine> lines,
+      String addressIdOverride,
+      UserProfile profileOrNull,
+      boolean includeHistory,
+      boolean includeUserDeliveryOtp,
+      PaymentTransactionEntity latestPaymentAttempt) {
     Map<String, Object> m = new LinkedHashMap<>();
     m.put("id", o.getId());
     UserEntity customer = o.getUser();
@@ -361,6 +433,9 @@ public class OrderService {
     m.put("paymentTxnId", o.getPaymentTxnId());
     m.put("paymentProvider", o.getPaymentProvider());
     m.put("paidAt", o.getPaidAt() != null ? o.getPaidAt().toString() : null);
+    m.put(
+        "latestPaymentAttempt",
+        latestPaymentAttempt != null ? toPaymentAttemptMap(latestPaymentAttempt) : null);
     List<Map<String, Object>> ls = new ArrayList<>();
     long total = 0;
     for (OrderLine ol : lines) {
@@ -553,7 +628,7 @@ public class OrderService {
   }
 
   /**
-   * Delivery partner view: no totals, unit prices, payment fields, or payment-adjacent metadata.
+   * Delivery partner view: line prices hidden; includes payment collection totals and status.
    */
   @Transactional(readOnly = true)
   public Map<String, Object> toDeliveryPartnerOrderMap(OrderEntity order, List<OrderLine> lines) {
@@ -569,6 +644,14 @@ public class OrderService {
     m.put("status", order.getStatus().name());
     m.put("paymentMethod", order.getPaymentMethod() != null ? order.getPaymentMethod().name() : null);
     m.put("paymentStatus", order.getPaymentStatus() != null ? order.getPaymentStatus().name() : null);
+    m.put("paymentProvider", order.getPaymentProvider());
+    m.put("paidAt", order.getPaidAt() != null ? order.getPaidAt().toString() : null);
+    if (order.getTotalInr() != null) {
+      long grandTotal = order.getTotalInr().setScale(0, RoundingMode.DOWN).longValue();
+      m.put("totalInr", grandTotal);
+      m.put("total", grandTotal);
+    }
+    m.put("currency", order.getCurrency() != null ? order.getCurrency() : "INR");
     List<Map<String, Object>> ls = new ArrayList<>();
     for (OrderLine ol : lines) {
       Map<String, Object> row = new LinkedHashMap<>();
@@ -675,6 +758,9 @@ public class OrderService {
     }
     o.setStatus(next);
     o.setUpdatedAt(Instant.now());
+    if (next == OrderStatus.delivered) {
+      markCodPaymentCollected(o);
+    }
     orderRepository.save(o);
     String actor = null;
     var auth = SecurityContextHolder.getContext().getAuthentication();
@@ -828,6 +914,110 @@ public class OrderService {
     paymentEventRepository.save(event);
   }
 
+  private Map<String, PaymentTransactionEntity> latestPaymentAttemptsForOrders(List<String> orderIds) {
+    if (orderIds == null || orderIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<String, PaymentTransactionEntity> latest = new HashMap<>();
+    for (PaymentTransactionEntity tx : paymentTransactionRepository.findByOrder_IdIn(orderIds)) {
+      String oid = tx.getOrder().getId();
+      PaymentTransactionEntity prev = latest.get(oid);
+      if (prev == null || isNewerPaymentAttempt(tx, prev)) {
+        latest.put(oid, tx);
+      }
+    }
+    return latest;
+  }
+
+  private static boolean isNewerPaymentAttempt(
+      PaymentTransactionEntity candidate, PaymentTransactionEntity current) {
+    if (candidate.getAttemptNo() != current.getAttemptNo()) {
+      return candidate.getAttemptNo() > current.getAttemptNo();
+    }
+    return candidate.getCreatedAt().isAfter(current.getCreatedAt());
+  }
+
+  private static Map<String, Object> toPaymentAttemptMap(PaymentTransactionEntity tx) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("status", tx.getStatus().name());
+    m.put("provider", tx.getProvider());
+    m.put("providerOrderId", tx.getProviderOrderId());
+    m.put("providerPaymentId", tx.getProviderPaymentId());
+    m.put("attemptNo", tx.getAttemptNo());
+    m.put("errorCode", tx.getErrorCode());
+    m.put("errorMessage", tx.getErrorMessage());
+    m.put("createdAt", tx.getCreatedAt().toString());
+    m.put("updatedAt", tx.getUpdatedAt().toString());
+    return m;
+  }
+
+  @Transactional
+  public Map<String, Object> cancelLatestRazorpayPaymentAttempt(UUID userId, String orderId) {
+    UUID uid = Objects.requireNonNull(userId, "userId");
+    if (orderId == null || orderId.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "orderId required");
+    }
+    OrderEntity order =
+        orderRepository
+            .findByIdAndUser_Id(orderId.trim(), uid)
+            .orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    OrderEntity locked =
+        orderRepository
+            .findByIdForUpdate(order.getId())
+            .orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    if (locked.getPaymentMethod() == PaymentMethod.cod) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Cash on Delivery orders do not use Razorpay");
+    }
+    String provider = locked.getPaymentProvider();
+    if (provider == null || !"razorpay".equalsIgnoreCase(provider.trim())) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Order is not an online Razorpay checkout");
+    }
+    if (locked.getPaymentStatus() == PaymentStatus.paid
+        || locked.getPaymentStatus() == PaymentStatus.authorized) {
+      throw new ApiException(
+          HttpStatus.CONFLICT, "PAYMENT_ALREADY_COMPLETED", "Order is already paid");
+    }
+    PaymentTransactionEntity latest =
+        paymentTransactionRepository
+            .findFirstByOrder_IdOrderByAttemptNoDescCreatedAtDesc(locked.getId())
+            .orElse(null);
+    if (latest == null) {
+      return Map.of("cancelled", false, "reason", "no_payment_attempt");
+    }
+    if (latest.getStatus() == PaymentTransactionStatus.cancelled) {
+      return Map.of(
+          "cancelled",
+          true,
+          "replayed",
+          true,
+          "latestPaymentAttempt",
+          toPaymentAttemptMap(latest));
+    }
+    if (latest.getStatus() != PaymentTransactionStatus.created
+        && latest.getStatus() != PaymentTransactionStatus.authorized) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "PAYMENT_CANCEL_NOT_ALLOWED",
+          "Latest payment attempt cannot be cancelled");
+    }
+    latest.setStatus(PaymentTransactionStatus.cancelled);
+    paymentTransactionRepository.save(latest);
+    String eventId = "cancel_attempt_" + latest.getId();
+    if (paymentEventRepository
+        .findByProviderAndProviderEventId(provider.toLowerCase(), eventId)
+        .isEmpty()) {
+      writePaymentEvent(locked, latest, provider.toLowerCase(), eventId, "payment_cancelled");
+    }
+    Map<String, Object> response = new LinkedHashMap<>();
+    response.put("cancelled", true);
+    response.put("latestPaymentAttempt", toPaymentAttemptMap(latest));
+    return response;
+  }
+
   @Transactional
   public void notifyOrderPlaced(OrderEntity order, UUID userId) {
     if (order == null || userId == null) return;
@@ -841,6 +1031,18 @@ public class OrderService {
         Map.of("status", order.getStatus().name()));
     notificationService.notifySuperAdminAndSalesNewOrder(order.getId());
     notifyOrderStatusWhatsappBestEffort(order, order.getStatus());
+  }
+
+  /**
+   * Cash collected on delivery: payment moves to paid without re-running stock decrement (stock is
+   * committed when the COD order is placed).
+   */
+  private void markCodPaymentCollected(OrderEntity order) {
+    if (order.getPaymentMethod() != PaymentMethod.cod) return;
+    if (order.getPaymentStatus() == PaymentStatus.paid) return;
+    order.setPaymentStatus(PaymentStatus.paid);
+    order.setPaidAt(Instant.now());
+    writePaymentEvent(order, null, "cod", "cod_collected_" + order.getId(), "payment_collected");
   }
 
   @Transactional

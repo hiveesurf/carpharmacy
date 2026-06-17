@@ -153,4 +153,52 @@ class AdminApiServiceProductMetadataTest {
     assertThat(md.get("stockOut").asInt()).isEqualTo(3);
     assertThat(savedHolder[0].getStockQuantity()).isEqualTo(7);
   }
+
+  @Test
+  void upsertProduct_allowsVehicleStockAboveOne() {
+    Category category = new Category();
+    category.setSlug("vehicles");
+    category.setName("Vehicles");
+    when(categoryRepository.findById("vehicles")).thenReturn(Optional.of(category));
+
+    Product existing = new Product();
+    existing.setId("veh-thar-24");
+    existing.setType(ProductType.vehicle);
+    existing.setStockQuantity(5);
+    existing.setPriceInr(BigDecimal.ONE);
+    when(productRepository.existsById("veh-thar-24")).thenReturn(true);
+    when(productRepository.findById("veh-thar-24")).thenReturn(Optional.of(existing));
+    final Product[] savedHolder = new Product[1];
+    when(productRepository.save(any(Product.class)))
+        .thenAnswer(
+            inv -> {
+              Product saved = inv.getArgument(0);
+              savedHolder[0] = saved;
+              return saved;
+            });
+    when(productRepository.findById("veh-thar-24"))
+        .thenAnswer(inv -> Optional.ofNullable(savedHolder[0]));
+    when(fitmentLabelRepository.findByProductIdIn(any())).thenReturn(List.of());
+    when(fitmentCarRepository.findByProductIdIn(any())).thenReturn(List.of());
+    when(carModelRepository.findAllById(any())).thenReturn(List.of());
+    when(vehicleSpecRepository.findById("veh-thar-24")).thenReturn(Optional.empty());
+    when(vehicleSpecRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    lenient()
+        .when(productPresenter.toAdminMap(any(), anyList(), anyList(), anyMap(), any()))
+        .thenReturn(Map.of("id", "veh-thar-24", "totalStock", 10));
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("type", "vehicle");
+    body.put("category", "Vehicles");
+    body.put("sku", "VEH-THAR");
+    body.put("name", "Thar");
+    body.put("price", 100);
+    body.put("purchasePrice", 80);
+    body.put("totalStock", 10);
+
+    adminApiService.upsertProduct(body, "veh-thar-24");
+
+    assertThat(savedHolder[0]).isNotNull();
+    assertThat(savedHolder[0].getStockQuantity()).isEqualTo(10);
+  }
 }

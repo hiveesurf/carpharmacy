@@ -27,6 +27,7 @@ import {
 } from '../../lib/orderStatus.js'
 import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
 import { useAuth } from '../../context/useAuth.js'
+import { DELIVERY_LIST_PATH } from '../../lib/deliveryRoutes.js'
 import {
   employeeAvailabilityShortLabel,
   isEmployeeOnlineForAssignment,
@@ -742,7 +743,7 @@ export function AdminOrdersPage() {
   }, [items.length, activeFilterCount, isDelivery, hasPhoneSearch, hasUserSearch])
 
   if (isDelivery) {
-    return <Navigate to="/admin/deliveries" replace />
+    return <Navigate to={DELIVERY_LIST_PATH} replace />
   }
 
   return (

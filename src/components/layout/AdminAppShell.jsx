@@ -6,9 +6,10 @@ import { useAuth } from '../../context/useAuth'
 import { useNotifications } from '../../context/useNotifications.js'
 import { formatPublicIdentityLabel } from '../../lib/identityDisplayLabel.js'
 import {
-  adminNotificationTargetPath,
   isAdminLowStockNotification,
+  notificationTargetPath,
 } from '../../lib/adminNotificationLinks.js'
+import { postLoginPathForRole } from '../../lib/postLoginPath.js'
 
 /**
  * Admin area only: no storefront navbar/hero/footer — full dashboard after login.
@@ -19,6 +20,7 @@ export function AdminAppShell({ children }) {
   const { user, signOut, sessionRole } = useAuth()
   const headerBrand =
     sessionRole === 'delivery' ? 'carpharmacy delivery' : 'carpharmacy admin'
+  const staffHomePath = postLoginPathForRole(sessionRole) ?? '/admin'
   const { unreadCount, panelOpen, setPanelOpen, items, markAllRead, markReadByIds, enablePushNotifications } =
     useNotifications()
   const notificationRef = useRef(null)
@@ -46,7 +48,7 @@ export function AdminAppShell({ children }) {
     <div className="relative min-h-svh bg-ink text-fog antialiased">
       <header className="nav-chrome fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between gap-4 border-b border-steel/60 bg-ink/95 px-4 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] backdrop-blur-md md:px-8">
         <Link
-          to="/admin"
+          to={staffHomePath}
           className="font-display text-sm font-bold uppercase tracking-wider text-fog transition-colors hover:text-accent"
         >
           {headerBrand}
@@ -101,7 +103,7 @@ export function AdminAppShell({ children }) {
                     <p className="text-xs text-mist">No notifications yet.</p>
                   ) : (
                     items.map((n) => {
-                      const targetPath = adminNotificationTargetPath(n)
+                      const targetPath = notificationTargetPath(n, sessionRole)
                       const isCritical =
                         n?.payload?.severity === 'critical' ||
                         (isAdminLowStockNotification(n) && Number(n?.payload?.currentStock ?? 1) <= 0)

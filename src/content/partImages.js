@@ -2,7 +2,7 @@
  * Featured parts & “shop by category” tiles — files in `/public/images`.
  * Mix of product photography (PNG) and real automotive stock (JPG).
  */
-import { publicUrl } from '../lib/publicUrl'
+import { publicUrl } from '../lib/publicUrl.js'
 
 export const PART_IMAGES = {
   brakes: {

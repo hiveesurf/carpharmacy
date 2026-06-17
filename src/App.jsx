@@ -38,6 +38,14 @@ import { CheckoutPage } from './pages/CheckoutPage.jsx'
 import { OrderConfirmationPage } from './pages/OrderConfirmationPage.jsx'
 import { FavoritesPage } from './pages/FavoritesPage'
 import { PolicyDocumentPage } from './pages/PolicyDocumentPage'
+import {
+  AdminHomeGate,
+  DeliveryLegacyDetailRedirect,
+  DeliveryLegacyListRedirect,
+  DeliveryLegacyOtpRedirect,
+  DeliveryLegacyProofRedirect,
+  DeliveryLegacySuccessRedirect,
+} from './components/routing/DeliveryRouteRedirects.jsx'
 
 function ScrollOnRouteChange() {
   const { pathname, hash } = useLocation()
@@ -132,24 +140,41 @@ export default function App() {
           </AdminAppShell>
         }
       >
-        <Route index element={<AdminOverviewPage />} />
+        <Route index element={<AdminHomeGate />} />
         <Route path="products" element={<AdminProductsPage />} />
         <Route path="products/add" element={<AdminAddProductPage />} />
         <Route path="cars" element={<AdminCarsPage />} />
         <Route path="cars/add" element={<AdminAddCarPage />} />
         <Route path="orders" element={<AdminOrdersPage />} />
         <Route path="orders/:orderId" element={<AdminOrderDetailsPage />} />
-        <Route path="deliveries" element={<DeliveryPartnerOrdersPage />} />
-        <Route path="deliveries/:orderId" element={<DeliveryDetailsPage />} />
-        <Route path="deliveries/:orderId/otp" element={<DeliveryOtpPage />} />
-        <Route path="deliveries/:orderId/proof" element={<DeliveryProofPage />} />
-        <Route path="deliveries/:orderId/success" element={<DeliverySuccessPage />} />
+        <Route path="deliveries" element={<DeliveryLegacyListRedirect />} />
+        <Route path="deliveries/:orderId" element={<DeliveryLegacyDetailRedirect />} />
+        <Route path="deliveries/:orderId/otp" element={<DeliveryLegacyOtpRedirect />} />
+        <Route path="deliveries/:orderId/proof" element={<DeliveryLegacyProofRedirect />} />
+        <Route path="deliveries/:orderId/success" element={<DeliveryLegacySuccessRedirect />} />
         <Route path="categories" element={<AdminCategoriesPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="users/:id" element={<AdminUserProfilePage />} />
         <Route path="employees" element={<AdminEmployeesPage />} />
         <Route path="employees/new" element={<AdminAddEmployeePage />} />
         <Route path="employees/:phone" element={<AdminEmployeeProfilePage />} />
+      </Route>
+      <Route
+        path="/delivery"
+        element={
+          <AdminAppShell>
+            <AdminRoute>
+              <AdminLayout />
+            </AdminRoute>
+          </AdminAppShell>
+        }
+      >
+        <Route index element={<AdminOverviewPage />} />
+        <Route path="orders" element={<DeliveryPartnerOrdersPage />} />
+        <Route path="orders/:orderId" element={<DeliveryDetailsPage />} />
+        <Route path="orders/:orderId/otp" element={<DeliveryOtpPage />} />
+        <Route path="orders/:orderId/proof" element={<DeliveryProofPage />} />
+        <Route path="orders/:orderId/success" element={<DeliverySuccessPage />} />
       </Route>
     </Routes>
     </>

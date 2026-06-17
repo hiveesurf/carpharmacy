@@ -5,5 +5,7 @@
  */
 export function publicUrl(path) {
   const normalized = path.startsWith('/') ? path.slice(1) : path
-  return `${import.meta.env.BASE_URL}${normalized}`
+  const envObj = import.meta?.env ?? {}
+  const base = typeof envObj.BASE_URL === 'string' && envObj.BASE_URL ? envObj.BASE_URL : '/'
+  return `${base}${normalized}`
 }
