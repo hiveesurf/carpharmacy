@@ -1,22 +1,17 @@
 import { Link } from 'react-router-dom'
 import { publicUrl } from '../../lib/publicUrl'
+import { FOOTER_POLICY_LINKS } from '../../lib/policyDocuments.js'
 import { Mail, MapPin, Phone } from 'lucide-react'
 
 const footerLinks = [
   { label: 'Home', to: '/' },
   { label: 'Catalog', to: '/catalog' },
-  { label: 'Services', to: '/#services' },
   { label: 'Parts', to: '/#parts' },
   { label: 'Buy cars', to: '/cars' },
   { label: 'How it works', to: '/#how' },
 ]
 
-const policyLinks = [
-  { label: 'Privacy policy', to: '/privacy' },
-  { label: 'Terms of use', to: '/terms' },
-  { label: 'Returns', to: '/returns' },
-  { label: 'Warranty', to: '/warranty' },
-]
+const policyLinks = FOOTER_POLICY_LINKS
 
 const INSTAGRAM_HREF =
   'https://www.instagram.com/carnalysys?igsh=bXRhaGVveWN6bnI2'

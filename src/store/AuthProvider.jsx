@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AuthContext } from '../context/auth-context.js'
 import * as authService from '../services/authService.js'
+import * as adminService from '../services/adminService.js'
 import { apiV1Base, refreshSessionWithCookie } from '../api/client.js'
 import { subscribeAccessTokenChanged } from '../lib/authTokenEvents.js'
 import { getAccessToken } from '../lib/authTokens.js'
 import { parseAccessTokenPayload, resolveSessionRole } from '../lib/jwtPayload.js'
+import { normalizePageKeys } from '../lib/adminPagePermissions.js'
 import { subscribeSessionDead, notifySessionDead } from '../lib/sessionEvents.js'
 import { notifyWorkforceAvailabilityChanged } from '../lib/workforceEvents.js'
 
@@ -19,6 +21,7 @@ function loadUser() {
       const next = { ...u, role: typeof u.role === 'string' ? u.role : 'user' }
       if (typeof u.avatarUrl === 'string' && u.avatarUrl) next.avatarUrl = u.avatarUrl
       if (typeof u.secondaryPhone === 'string') next.secondaryPhone = u.secondaryPhone
+      if (Array.isArray(u.pageKeys)) next.pageKeys = normalizePageKeys(u.pageKeys)
       return next
     }
   } catch {
@@ -46,7 +49,11 @@ export function AuthProvider({ children }) {
     () => resolveSessionRole(user, getAccessToken()),
     [user, tokenVersion],
   )
-  const isAdmin = ['super_admin', 'sales', 'delivery', 'admin'].includes(sessionRole)
+  const isAdmin = ['super_admin', 'sales', 'delivery', 'custom', 'admin'].includes(sessionRole)
+  const adminPageKeys = useMemo(
+    () => (sessionRole === 'custom' ? normalizePageKeys(user?.pageKeys) : []),
+    [sessionRole, user?.pageKeys],
+  )
 
   /**
    * Align cached `user.role` with the access token when possible so employee roles (e.g. delivery)
@@ -59,7 +66,7 @@ export function AuthProvider({ children }) {
     const jwtMapped =
       jwtRoleRaw === 'admin' || jwtRoleRaw === 'super_admin'
         ? 'super_admin'
-        : jwtRoleRaw === 'sales' || jwtRoleRaw === 'delivery'
+        : jwtRoleRaw === 'sales' || jwtRoleRaw === 'delivery' || jwtRoleRaw === 'custom'
           ? jwtRoleRaw
           : ''
     setUser((u) => {
@@ -69,7 +76,7 @@ export function AuthProvider({ children }) {
       }
       if (
         !jwtMapped &&
-        !['super_admin', 'sales', 'delivery'].includes(String(u.role).toLowerCase())
+        !['super_admin', 'sales', 'delivery', 'custom'].includes(String(u.role).toLowerCase())
       ) {
         return { ...u, role: 'super_admin' }
       }
@@ -130,6 +137,7 @@ export function AuthProvider({ children }) {
           ...(typeof profile.secondaryPhone === 'string'
             ? { secondaryPhone: profile.secondaryPhone }
             : {}),
+          ...(Array.isArray(prev?.pageKeys) ? { pageKeys: prev.pageKeys } : {}),
         }
       })
 
@@ -148,6 +156,7 @@ export function AuthProvider({ children }) {
                   : (prev?.name ?? `User ${String(u.phone).slice(-4)}`),
               role: typeof u.role === 'string' ? u.role : dbRoleRaw,
               ...(typeof u.avatarUrl === 'string' && u.avatarUrl ? { avatarUrl: u.avatarUrl } : {}),
+              ...(Array.isArray(prev?.pageKeys) ? { pageKeys: prev.pageKeys } : {}),
             }))
           }
         } else if (!cancelled && !r.ok) {
@@ -159,6 +168,26 @@ export function AuthProvider({ children }) {
       cancelled = true
     }
   }, [authHydrated, tokenVersion])
+
+  /** Load pageKeys for custom-role admins from GET /admin/me. */
+  useEffect(() => {
+    if (!apiV1Base() || !authHydrated || !getAccessToken()) return
+    if (sessionRole !== 'custom') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const me = await adminService.getAdminMe()
+        if (cancelled || !me) return
+        const keys = normalizePageKeys(me.pageKeys)
+        setUser((u) => (u ? { ...u, pageKeys: keys } : u))
+      } catch {
+        /* server ACL still enforces; nav may be empty until retry */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [authHydrated, sessionRole, tokenVersion])
 
   /** Silent refresh ~1 min before access JWT expiry while tab visible. */
   useEffect(() => {
@@ -248,6 +277,7 @@ export function AuthProvider({ children }) {
       user,
       sessionRole,
       isAdmin,
+      adminPageKeys,
       authHydrated,
       sendOtp,
       verifyOtp,
@@ -261,6 +291,7 @@ export function AuthProvider({ children }) {
       user,
       sessionRole,
       isAdmin,
+      adminPageKeys,
       authHydrated,
       sendOtp,
       verifyOtp,

@@ -166,6 +166,7 @@ class AuthServiceTest {
     employee.setPhoneE164("9876543210");
     employee.setRole("sales");
     employee.setOnboardingStatus("pending");
+    employee.setAvailabilityStatus("pending");
 
     when(otpChallengeRepository.findTopByPhoneE164AndConsumedAtIsNullOrderByCreatedAtDesc("9876543210"))
         .thenReturn(Optional.of(challenge));
@@ -185,6 +186,7 @@ class AuthServiceTest {
     assertThat(user.getRole()).isEqualTo("sales");
     assertThat(employee.getOnboardingStatus()).isEqualTo("success");
     assertThat(employee.getFirstLoginAt()).isNotNull();
+    assertThat(employee.getAvailabilityStatus()).isEqualTo("online");
     verify(adminUserRepository).save(employee);
     verify(refreshTokenRepository).save(any(RefreshTokenEntity.class));
   }

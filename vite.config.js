@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // GitHub Pages project site lives under /carnalysys/; local dev uses / so
 // `public/` files resolve at /images/... (not /carnalysys/images/...).
@@ -25,6 +26,63 @@ export default defineConfig(({ mode }) => {
           return html.replace('<head>', `<head>\n    <!-- build ${stamp} -->`)
         },
       },
+      VitePWA({
+        registerType: 'prompt',
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.js',
+        injectRegister: false,
+        includeAssets: [
+          'logo-carnalysys.png',
+          'offline.html',
+          'icons/pwa-192x192.png',
+          'icons/pwa-512x512.png',
+          'icons/pwa-512x512-maskable.png',
+          'icons/apple-touch-icon.png',
+        ],
+        manifest: {
+          name: 'CarPharmacy — Car Parts & Fitment',
+          short_name: 'CarPharmacy',
+          description:
+            'Genuine automotive parts, assured delivery, and OEM brands from CarPharmacy.',
+          theme_color: '#ff6b35',
+          background_color: '#eef1f4',
+          display: 'standalone',
+          start_url: '/',
+          scope: '/',
+          icons: [
+            {
+              src: 'icons/pwa-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
+            },
+            {
+              src: 'icons/pwa-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+            },
+            {
+              src: 'icons/pwa-512x512-maskable.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+          ],
+        },
+        injectManifest: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          globIgnores: [
+            '**/images/**',
+            '**/mock-api/**',
+            '**/assets/hero-cars.png',
+            '**/sw-push.js',
+          ],
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        },
+        devOptions: {
+          enabled: false,
+        },
+      }),
     ],
     build: {
       // Smaller deploys; enable temporarily if debugging prod builds

@@ -76,6 +76,7 @@ public class AddressService {
     if (body.containsKey("pincode")) a.setPincode(String.valueOf(body.get("pincode")));
     if (body.containsKey("country")) a.setCountry(normalizeCountry(body.get("country")));
     if (body.containsKey("label")) a.setLabel(strOrNull(body.get("label")));
+    if (body.containsKey("gstNumber")) a.setGstNumber(normalizeGstNumber(body.get("gstNumber")));
     if (body.containsKey("isDefault")) a.setDefaultAddress(Boolean.TRUE.equals(body.get("isDefault")));
     if (a.getLine1() == null || a.getLine1().isBlank()) a.setLine1("");
     if (a.getCity() == null || a.getCity().isBlank()) a.setCity("");
@@ -84,6 +85,13 @@ public class AddressService {
 
   private static String strOrNull(Object o) {
     return o == null ? null : String.valueOf(o);
+  }
+
+  /** Blank/null → null; otherwise trimmed uppercase (format validated client-side). */
+  private static String normalizeGstNumber(Object raw) {
+    if (raw == null) return null;
+    String t = String.valueOf(raw).trim().toUpperCase();
+    return t.isEmpty() ? null : t;
   }
 
   private static String normalizeCountry(Object raw) {
@@ -106,6 +114,7 @@ public class AddressService {
     m.put("pincode", a.getPincode());
     m.put("country", a.getCountry());
     m.put("label", a.getLabel());
+    m.put("gstNumber", a.getGstNumber());
     m.put("isDefault", a.isDefaultAddress());
     return m;
   }

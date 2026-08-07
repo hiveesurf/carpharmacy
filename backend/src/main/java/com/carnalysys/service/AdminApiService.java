@@ -1,11 +1,13 @@
 package com.carnalysys.service;
 
 import com.carnalysys.api.ApiException;
+import com.carnalysys.domain.AddressEntity;
 import com.carnalysys.domain.Category;
 import com.carnalysys.domain.CarFuelOption;
 import com.carnalysys.domain.CarModelEntity;
 import com.carnalysys.domain.CarTransmissionOption;
 import com.carnalysys.domain.AdminUser;
+import com.carnalysys.domain.CustomRole;
 import com.carnalysys.domain.OrderEntity;
 import com.carnalysys.domain.OrderStatus;
 import com.carnalysys.domain.Product;
@@ -42,6 +44,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -52,12 +55,18 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.Page;
@@ -75,6 +84,9 @@ public class AdminApiService {
 
   private static final Set<String> USER_LIST_ROLE_FILTERS =
       Set.of("user", "super_admin", "sales", "delivery");
+
+  private static final Set<String> USER_LIST_CUSTOMER_TYPE_FILTERS =
+      Set.of("personal", "business");
 
   /** Assigned orders visible in delivery partner "My deliveries" (excludes draft, cancelled, refunded). */
   private static final List<OrderStatus> DELIVERY_PARTNER_LIST_STATUSES =
@@ -126,6 +138,7 @@ public class AdminApiService {
   private final LowStockAlertService lowStockAlertService;
   private final DeliveryWorkflowService deliveryWorkflowService;
   private final WhatsappService whatsappService;
+  private final CustomRoleService customRoleService;
 
   public AdminApiService(
       AdminUserRepository adminUserRepository,
@@ -154,7 +167,8 @@ public class AdminApiService {
       ProductExcelParser productExcelParser,
       LowStockAlertService lowStockAlertService,
       DeliveryWorkflowService deliveryWorkflowService,
-      WhatsappService whatsappService) {
+      WhatsappService whatsappService,
+      CustomRoleService customRoleService) {
     this.adminUserRepository = adminUserRepository;
     this.userRepository = userRepository;
     this.userProfileRepository = userProfileRepository;
@@ -182,6 +196,7 @@ public class AdminApiService {
     this.lowStockAlertService = lowStockAlertService;
     this.deliveryWorkflowService = deliveryWorkflowService;
     this.whatsappService = whatsappService;
+    this.customRoleService = customRoleService;
   }
 
   @Transactional(readOnly = true)
@@ -198,6 +213,7 @@ public class AdminApiService {
     long purchaseValue = revenue;
     var top = catalogService.listAllForAdmin().stream().filter(m -> Boolean.TRUE.equals(m.get("published"))).limit(5).toList();
     var revenueVsPurchases = buildRevenueVsPurchasesSeries(orders);
+    var partsBreakdown = buildPartsBreakdown();
     Map<String, Object> d = new LinkedHashMap<>();
     d.put("totalUsers", users);
     d.put("totalOrders", totalOrders);
@@ -205,6 +221,7 @@ public class AdminApiService {
     d.put("purchaseCount", purchaseCount);
     d.put("purchaseValue", purchaseValue);
     d.put("revenueVsPurchases", revenueVsPurchases);
+    d.put("partsBreakdown", partsBreakdown);
     d.put("topProducts", top);
     d.put("salesPerformance", listSalesPerformance());
     d.put("lowStockCount", catalogService.countLowStockForAdmin());
@@ -237,6 +254,202 @@ public class AdminApiService {
     return series;
   }
 
+  /** Parts revenue by category — same order set as revenueVsPurchases (all with placed_at). */
+  private List<Map<String, Object>> buildPartsBreakdown() {
+    List<Map<String, Object>> series = new ArrayList<>();
+    for (Object[] row : orderLineRepository.sumSoldByCategory()) {
+      if (row == null || row[0] == null) continue;
+      String category = String.valueOf(row[0]).trim();
+      if (category.isEmpty()) {
+        category = "Uncategorized";
+      }
+      long count =
+          row[1] instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(row[1]));
+      long revenue =
+          row[2] instanceof BigDecimal bd
+              ? bd.longValue()
+              : row[2] instanceof Number n ? n.longValue() : 0L;
+      if (count <= 0 && revenue <= 0) continue;
+      Map<String, Object> item = new LinkedHashMap<>();
+      item.put("category", category);
+      item.put("count", count);
+      item.put("revenue", revenue);
+      series.add(item);
+    }
+    return series;
+  }
+
+  /**
+   * Admin sales report: time series, product rankings, and non-selling products for a date range.
+   * Order lines count only when order status is not draft/cancelled/refunded (same rule as catalog
+   * purchased summaries).
+   */
+  @Transactional(readOnly = true)
+  public Map<String, Object> getSalesReport(
+      String startDate,
+      String endDate,
+      String groupBy,
+      String sort,
+      String sortBy,
+      boolean notSelling,
+      int page,
+      int size) {
+    CreatedAtRange range = parseOptionalCreatedAtRange(startDate, endDate);
+    Instant startAt = range != null ? range.startInclusive() : null;
+    Instant endAt = range != null ? range.endExclusive() : null;
+
+    String bucket = groupBy == null ? "month" : groupBy.trim().toLowerCase(Locale.ROOT);
+    if (!bucket.equals("day") && !bucket.equals("month") && !bucket.equals("year")) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "groupBy must be day, month, or year");
+    }
+
+    String sortField = sortBy == null ? "revenue" : sortBy.trim().toLowerCase(Locale.ROOT);
+    if (!sortField.equals("revenue") && !sortField.equals("unitssold")) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "sortBy must be revenue or unitsSold");
+    }
+    boolean sortByUnits = sortField.equals("unitssold");
+
+    List<Object[]> tsRows =
+        switch (bucket) {
+          case "day" -> orderLineRepository.salesReportTimeSeriesDay(startAt, endAt);
+          case "year" -> orderLineRepository.salesReportTimeSeriesYear(startAt, endAt);
+          default -> orderLineRepository.salesReportTimeSeriesMonth(startAt, endAt);
+        };
+    List<Map<String, Object>> timeSeries = new ArrayList<>();
+    for (Object[] row : tsRows) {
+      if (row == null || row[0] == null) continue;
+      Map<String, Object> point = new LinkedHashMap<>();
+      point.put("period", String.valueOf(row[0]));
+      point.put("revenue", toLong(row[1]));
+      point.put("unitsSold", toLong(row[2]));
+      timeSeries.add(point);
+    }
+
+    Object[] summaryRow = orderLineRepository.salesReportSummary(startAt, endAt);
+    long totalRevenue = summaryRow != null && summaryRow.length > 0 ? toLong(summaryRow[0]) : 0L;
+    long totalUnitsSold = summaryRow != null && summaryRow.length > 1 ? toLong(summaryRow[1]) : 0L;
+
+    Map<String, Long> unitsByProduct = new HashMap<>();
+    Map<String, Long> revenueByProduct = new HashMap<>();
+    for (Object[] row : orderLineRepository.salesReportByProductInRange(startAt, endAt)) {
+      if (row == null || row[0] == null) continue;
+      String pid = String.valueOf(row[0]);
+      unitsByProduct.put(pid, toLong(row[1]));
+      revenueByProduct.put(pid, toLong(row[2]));
+    }
+
+    List<Map<String, Object>> productRows;
+    if (notSelling) {
+      productRows = buildNonSellingProductRows(unitsByProduct);
+    } else {
+      boolean lowest = "lowest".equalsIgnoreCase(String.valueOf(sort).trim());
+      productRows = buildSellingProductRows(unitsByProduct, revenueByProduct, lowest, sortByUnits);
+    }
+
+    int safePage = Math.max(0, page);
+    int safeSize = Math.max(1, Math.min(50, size));
+    int totalElements = productRows.size();
+    int fromIndex = Math.min(safePage * safeSize, totalElements);
+    int toIndex = Math.min(fromIndex + safeSize, totalElements);
+    List<Map<String, Object>> pagedProducts = productRows.subList(fromIndex, toIndex);
+
+    Map<String, Object> summary = new LinkedHashMap<>();
+    summary.put("totalRevenue", totalRevenue);
+    summary.put("totalUnitsSold", totalUnitsSold);
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("summary", summary);
+    body.put("timeSeries", timeSeries);
+    body.put("products", pagedProducts);
+    body.put("page", safePage);
+    body.put("size", safeSize);
+    body.put("totalElements", totalElements);
+    body.put("hasMore", toIndex < totalElements);
+    body.put("nextPage", toIndex < totalElements ? safePage + 1 : safePage);
+    return body;
+  }
+
+  private List<Map<String, Object>> buildSellingProductRows(
+      Map<String, Long> unitsByProduct,
+      Map<String, Long> revenueByProduct,
+      boolean lowest,
+      boolean sortByUnits) {
+    if (revenueByProduct.isEmpty()) {
+      return List.of();
+    }
+    List<Product> products = productRepository.findAllById(revenueByProduct.keySet());
+    List<Map<String, Object>> rows = new ArrayList<>();
+    for (Product p : products) {
+      if (p == null || p.getDeletedAt() != null) continue;
+      long units = unitsByProduct.getOrDefault(p.getId(), 0L);
+      long revenue = revenueByProduct.getOrDefault(p.getId(), 0L);
+      if (units <= 0 && revenue <= 0) continue;
+      rows.add(toSalesReportProductRow(p, units, revenue));
+    }
+    String sortKey = sortByUnits ? "unitsSold" : "revenue";
+    Comparator<Map<String, Object>> byMetric =
+        Comparator.comparingLong(r -> ((Number) r.get(sortKey)).longValue());
+    rows.sort(lowest ? byMetric : byMetric.reversed());
+    return rows;
+  }
+
+  private List<Map<String, Object>> buildNonSellingProductRows(Map<String, Long> unitsByProduct) {
+    List<Product> active = productRepository.findAllActive();
+    List<Map<String, Object>> rows = new ArrayList<>();
+    for (Product p : active) {
+      if (p.getDeletedAt() != null) continue;
+      if (unitsByProduct.getOrDefault(p.getId(), 0L) > 0) continue;
+      rows.add(toSalesReportProductRow(p, 0L, 0L));
+    }
+    rows.sort(
+        Comparator.comparing(
+            r -> String.valueOf(r.get("name")), String.CASE_INSENSITIVE_ORDER));
+    return rows;
+  }
+
+  private Map<String, Object> toSalesReportProductRow(Product p, long unitsSold, long revenue) {
+    Map<String, Object> row = new LinkedHashMap<>();
+    row.put("productId", p.getId());
+    row.put("name", p.getName());
+    row.put("sku", p.getSku());
+    row.put("category", p.getCategory() != null ? p.getCategory().getName() : "");
+    row.put(
+        "price",
+        p.getPriceInr() != null ? p.getPriceInr().setScale(0, RoundingMode.DOWN).longValue() : 0L);
+    row.put("imageKey", p.getImageKey());
+    String imageUrl = resolveProductImageUrlForReport(p);
+    row.put("imageUrl", imageUrl);
+    if (imageUrl != null) {
+      row.put("image", imageUrl);
+    }
+    row.put("unitsSold", unitsSold);
+    row.put("revenue", revenue);
+    return row;
+  }
+
+  private String resolveProductImageUrlForReport(Product p) {
+    Map<String, Object> pub =
+        productPresenter.toPublicMap(p, List.of(), List.of(), Map.of(), null);
+    Object img = pub.get("image");
+    if (img != null && !String.valueOf(img).isBlank()) {
+      return String.valueOf(img);
+    }
+    return null;
+  }
+
+  private static long toLong(Object value) {
+    if (value == null) return 0L;
+    if (value instanceof BigDecimal bd) return bd.longValue();
+    if (value instanceof Number n) return n.longValue();
+    try {
+      return Long.parseLong(String.valueOf(value));
+    } catch (NumberFormatException ex) {
+      return 0L;
+    }
+  }
+
   @Transactional(readOnly = true)
   public List<Map<String, Object>> listUsers() {
     return userRepository.findAll().stream()
@@ -259,12 +472,25 @@ public class AdminApiService {
   }
 
   @Transactional(readOnly = true)
-  public Map<String, Object> listUsersPage(int page, int size, String phone, String role) {
+  public Map<String, Object> listUsersPage(
+      int page,
+      int size,
+      String phone,
+      String role,
+      String createdFrom,
+      String createdTo,
+      String customerType) {
     Pageable pageable =
-        PageRequest.of(Math.max(0, page), Math.max(1, Math.min(50, size)), Sort.by("id").descending());
+        PageRequest.of(
+            Math.max(0, page),
+            Math.max(1, Math.min(50, size)),
+            Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
     String phoneFilter = phone == null || phone.isBlank() ? null : phone.trim();
     String roleFilter = normalizeUserListRoleParam(role);
-    Specification<UserEntity> spec = userListSpecification(phoneFilter, roleFilter);
+    String customerTypeFilter = normalizeUserListCustomerTypeParam(customerType);
+    CreatedAtRange joined = parseOptionalCreatedAtRange(createdFrom, createdTo);
+    Specification<UserEntity> spec =
+        userListSpecification(phoneFilter, roleFilter, joined, customerTypeFilter);
     Page<UserEntity> result = userRepository.findAll(spec, pageable);
     List<Map<String, Object>> items = result.getContent().stream().map(this::toUserMap).toList();
     return pagedResponse(items, result.getNumber(), result.getSize(), result.hasNext());
@@ -278,11 +504,64 @@ public class AdminApiService {
     return USER_LIST_ROLE_FILTERS.contains(r) ? r : null;
   }
 
+  private static String normalizeUserListCustomerTypeParam(String customerType) {
+    if (customerType == null || customerType.isBlank()) {
+      return null;
+    }
+    String value = customerType.trim().toLowerCase();
+    return USER_LIST_CUSTOMER_TYPE_FILTERS.contains(value) ? value : null;
+  }
+
   private static String escapeLikePattern(String raw) {
     return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
   }
 
-  private static Specification<UserEntity> userListSpecification(String phone, String role) {
+  private record CreatedAtRange(Instant startInclusive, Instant endExclusive) {}
+
+  /**
+   * Optional join-date filter. Calendar days are interpreted in UTC.
+   *
+   * <ul>
+   *   <li>Both blank → no date filter
+   *   <li>Only one set → that single calendar day (inclusive)
+   *   <li>Both set → inclusive from day through inclusive to day ({@code [from, to+1day)})
+   * </ul>
+   */
+  private CreatedAtRange parseOptionalCreatedAtRange(String createdFrom, String createdTo) {
+    String from = createdFrom != null ? createdFrom.trim() : "";
+    String to = createdTo != null ? createdTo.trim() : "";
+    if (from.isEmpty() && to.isEmpty()) {
+      return null;
+    }
+    if (from.isEmpty()) {
+      from = to;
+    } else if (to.isEmpty()) {
+      to = from;
+    }
+    LocalDate fromD;
+    LocalDate toD;
+    try {
+      fromD = LocalDate.parse(from, EMPLOYEE_DELIVERY_ISO_DATE);
+      toD = LocalDate.parse(to, EMPLOYEE_DELIVERY_ISO_DATE);
+    } catch (java.time.format.DateTimeParseException ex) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "VALIDATION_ERROR",
+          "createdFrom and createdTo must be YYYY-MM-DD");
+    }
+    if (toD.isBefore(fromD)) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "VALIDATION_ERROR",
+          "createdTo must be on or after createdFrom");
+    }
+    Instant start = fromD.atStartOfDay(ZoneOffset.UTC).toInstant();
+    Instant end = toD.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+    return new CreatedAtRange(start, end);
+  }
+
+  private static Specification<UserEntity> userListSpecification(
+      String phone, String role, CreatedAtRange joined, String customerType) {
     return (root, query, cb) -> {
       List<Predicate> predicates = new ArrayList<>();
       if (phone != null) {
@@ -292,11 +571,34 @@ public class AdminApiService {
       if (role != null) {
         predicates.add(cb.equal(root.get("role"), role));
       }
+      if (joined != null) {
+        predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), joined.startInclusive()));
+        predicates.add(cb.lessThan(root.get("createdAt"), joined.endExclusive()));
+      }
+      if ("business".equals(customerType)) {
+        predicates.add(hasActiveBusinessGstAddress(root, query, cb));
+      } else if ("personal".equals(customerType)) {
+        predicates.add(cb.not(hasActiveBusinessGstAddress(root, query, cb)));
+      }
       if (predicates.isEmpty()) {
         return cb.conjunction();
       }
       return cb.and(predicates.toArray(Predicate[]::new));
     };
+  }
+
+  /** User has at least one non-deleted address with a non-blank GST number. */
+  private static Predicate hasActiveBusinessGstAddress(
+      Root<UserEntity> root, CriteriaQuery<?> query, CriteriaBuilder cb) {
+    Subquery<UUID> sub = query.subquery(UUID.class);
+    Root<AddressEntity> addr = sub.from(AddressEntity.class);
+    sub.select(addr.get("id"));
+    sub.where(
+        cb.equal(addr.get("user").get("id"), root.get("id")),
+        cb.isNull(addr.get("deletedAt")),
+        cb.isNotNull(addr.get("gstNumber")),
+        cb.notEqual(cb.trim(addr.get("gstNumber")), ""));
+    return cb.exists(sub);
   }
 
   @Transactional(readOnly = true)
@@ -356,10 +658,10 @@ public class AdminApiService {
         "avatarUrl",
         userAvatarService.hasAvatar(u.getId()) ? userAvatarService.publicAvatarUrl(u.getId()) : "");
 
-    List<Map<String, Object>> addresses =
-        addressRepository.findByUser_IdAndDeletedAtIsNullOrderByCreatedAtDesc(id).stream()
-            .map(this::toAddressMap)
-            .toList();
+    List<AddressEntity> addressRows =
+        addressRepository.findByUser_IdAndDeletedAtIsNullOrderByCreatedAtDesc(id);
+    List<Map<String, Object>> addresses = addressRows.stream().map(this::toAddressMap).toList();
+    user.put("gstNumber", resolveProfileGstNumber(addressRows));
 
     Map<String, Object> orderCounts = buildCustomerOrderCounts(id);
     List<Map<String, Object>> recentOrders =
@@ -502,7 +804,8 @@ public class AdminApiService {
   public Map<String, Object> listCategoriesPage(int page, int size) {
     Pageable pageable =
         PageRequest.of(Math.max(0, page), Math.max(1, Math.min(50, size)), Sort.by("name").ascending());
-    Page<Category> result = categoryRepository.findAll(pageable);
+    // Active categories only — soft-deleted leftovers are ignored going forward (hard delete is the model).
+    Page<Category> result = categoryRepository.findByDeletedAtIsNull(pageable);
     List<Map<String, Object>> items =
         result.getContent().stream()
             .map(
@@ -511,8 +814,8 @@ public class AdminApiService {
                   row.put("id", c.getSlug());
                   row.put("name", c.getName());
                   row.put("createdByAdminEmail", c.getCreatedByAdminEmail());
-                  row.put("deleted", c.getDeletedAt() != null);
-                  row.put("deletedAt", c.getDeletedAt() != null ? c.getDeletedAt().toString() : null);
+                  row.put("deleted", false);
+                  row.put("deletedAt", null);
                   return row;
                 })
             .toList();
@@ -539,7 +842,7 @@ public class AdminApiService {
         revenueBySlug.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
 
     List<Category> cats =
-        categoryRepository.findAll().stream()
+        categoryRepository.findAllActive().stream()
             .sorted(Comparator.comparing(Category::getName, String.CASE_INSENSITIVE_ORDER))
             .toList();
 
@@ -550,8 +853,6 @@ public class AdminApiService {
       m.put("id", c.getSlug());
       m.put("name", c.getName());
       m.put("createdByAdminEmail", c.getCreatedByAdminEmail());
-      m.put("deleted", c.getDeletedAt() != null);
-      m.put("deletedAt", c.getDeletedAt() != null ? c.getDeletedAt().toString() : null);
       m.put("productCount", plist.size());
       m.put(
           "purchasedValueInr",
@@ -578,12 +879,13 @@ public class AdminApiService {
     return m;
   }
 
-  private static String currentAdminEmailOrNull() {
-    Authentication a = SecurityContextHolder.getContext().getAuthentication();
-    if (a == null || !a.isAuthenticated()) return null;
-    String n = a.getName();
-    if (n == null || n.isBlank()) return null;
-    return n.contains("@") ? n : null;
+  private String currentAdminEmailOrNull() {
+    try {
+      String email = resolveCurrentAdminUser().getEmail();
+      return email != null && !email.isBlank() ? email.trim() : null;
+    } catch (ApiException ex) {
+      return null;
+    }
   }
 
   @Transactional
@@ -638,8 +940,16 @@ public class AdminApiService {
             .findById(id)
             .orElseThrow(
                 () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Category not found"));
-    c.setDeletedAt(Instant.now());
-    categoryRepository.save(c);
+    long productCount = productRepository.countByCategory_Slug(id);
+    if (productCount > 0) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "CATEGORY_IN_USE",
+          "Cannot delete category: "
+              + productCount
+              + " product(s) still use this category.");
+    }
+    categoryRepository.delete(c);
     return Map.of("removed", id);
   }
 
@@ -1393,7 +1703,58 @@ public class AdminApiService {
         .toList();
   }
 
-  private static final List<String> WORKFORCE_ROLES = List.of("sales", "delivery");
+  private static final List<String> WORKFORCE_ROLES = List.of("sales", "delivery", "custom");
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> getCurrentAdminMe() {
+    AdminUser admin = resolveCurrentAdminUser();
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("id", admin.getId().toString());
+    m.put("phone", admin.getPhoneE164());
+    m.put("email", admin.getEmail());
+    m.put("name", admin.getFullName());
+    m.put("role", admin.getRole());
+    if (admin.getCustomRoleId() != null) {
+      List<String> pageKeys = customRoleService.pageKeysForRole(admin.getCustomRoleId());
+      Map<String, Object> customRole = new LinkedHashMap<>();
+      customRole.put("id", admin.getCustomRoleId().toString());
+      customRole.put(
+          "name",
+          customRoleService
+              .findById(admin.getCustomRoleId())
+              .map(CustomRole::getName)
+              .orElse(null));
+      customRole.put("pageKeys", pageKeys);
+      m.put("customRole", customRole);
+      m.put("pageKeys", pageKeys);
+    } else {
+      m.put("customRole", null);
+      m.put("pageKeys", List.of());
+    }
+    return m;
+  }
+
+  @Transactional(readOnly = true)
+  public List<Map<String, Object>> listCustomRoles() {
+    return customRoleService.listRoles();
+  }
+
+  @Transactional
+  public Map<String, Object> createCustomRole(Map<String, Object> body) {
+    AdminUser actor = resolveCurrentAdminUser();
+    return customRoleService.createRole(body, formatWorkforceActorLabel(actor));
+  }
+
+  @Transactional
+  public Map<String, Object> updateCustomRolePermissions(String id, Map<String, Object> body) {
+    UUID roleId;
+    try {
+      roleId = UUID.fromString(id == null ? "" : id.trim());
+    } catch (IllegalArgumentException ex) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid custom role id");
+    }
+    return customRoleService.replacePermissions(roleId, body);
+  }
 
   @Transactional
   public List<Map<String, Object>> listEmployees(Boolean deleted) {
@@ -1460,7 +1821,7 @@ public class AdminApiService {
   public Map<String, Object> createEmployee(Map<String, Object> body) {
     requireSuperAdmin();
     String phone = parseEmployeePhone(body.get("phone"));
-    UserRole role = parseWorkforceRole(body.get("role"));
+    UserRole role = parseCreateEmployeeRole(body.get("role"));
     String name = parseEmployeeName(body.get("name"));
     Optional<AdminUser> existingPhone = adminUserRepository.findByPhoneE164(phone);
     if (existingPhone.isPresent()) {
@@ -1479,7 +1840,15 @@ public class AdminApiService {
     a.setFullName(name);
     applyEmployeePhoto(a, body);
     a.setOnboardingStatus("pending");
-    a.setAvailabilityStatus(role == UserRole.delivery ? "online" : "busy");
+    a.setCustomRoleId(null);
+    if (role == UserRole.custom) {
+      AdminUser actor = resolveCurrentAdminUser();
+      CustomRole customRole =
+          customRoleService.resolveOrCreateForEmployee(body, formatWorkforceActorLabel(actor));
+      a.setCustomRoleId(customRole.getId());
+    }
+    // New employees stay pending until first successful login.
+    a.setAvailabilityStatus("pending");
     adminUserRepository.save(a);
     return Map.of("employee", toEmployeeMap(a));
   }
@@ -1489,7 +1858,6 @@ public class AdminApiService {
     requireSuperAdmin();
     AdminUser employee = requireWorkforceEmployee(phone);
     String newPhone = parseEmployeePhone(body.get("phone"));
-    UserRole role = parseWorkforceRole(body.get("role"));
     String name = parseEmployeeName(body.get("name"));
     if (!newPhone.equals(employee.getPhoneE164())) {
       Optional<AdminUser> phoneTaken = adminUserRepository.findByPhoneE164(newPhone);
@@ -1508,14 +1876,44 @@ public class AdminApiService {
     String newEmail = workforceEmail(newPhone);
     employee.setPhoneE164(newPhone);
     employee.setEmail(newEmail);
-    employee.setRole(role.name());
     employee.setFullName(name);
     applyEmployeePhoto(employee, body);
-    if (role == UserRole.delivery && !"delivery".equalsIgnoreCase(previousRole)) {
-      employee.setAvailabilityStatus("online");
-    } else if (role == UserRole.sales && "delivery".equalsIgnoreCase(previousRole)) {
-      employee.setAvailabilityStatus("busy");
+
+    if ("custom".equalsIgnoreCase(previousRole)) {
+      UserRole requested = UserRole.from(String.valueOf(body.get("role") == null ? "custom" : body.get("role")));
+      if (requested == UserRole.sales || requested == UserRole.delivery) {
+        employee.setRole(requested.name());
+        employee.setCustomRoleId(null);
+        if (!EmployeeAvailability.isPending(employee.getAvailabilityStatus())) {
+          if (requested == UserRole.delivery) {
+            employee.setAvailabilityStatus("online");
+          } else {
+            employee.setAvailabilityStatus("busy");
+          }
+        }
+      } else if (requested == UserRole.custom) {
+        employee.setRole("custom");
+        AdminUser actor = resolveCurrentAdminUser();
+        CustomRole customRole =
+            customRoleService.resolveOrCreateForEmployee(body, formatWorkforceActorLabel(actor));
+        employee.setCustomRoleId(customRole.getId());
+      } else {
+        throw new ApiException(
+            HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "role must be sales, delivery, or custom");
+      }
+    } else {
+      UserRole role = parseWorkforceRole(body.get("role"));
+      employee.setRole(role.name());
+      employee.setCustomRoleId(null);
+      if (!EmployeeAvailability.isPending(employee.getAvailabilityStatus())) {
+        if (role == UserRole.delivery && !"delivery".equalsIgnoreCase(previousRole)) {
+          employee.setAvailabilityStatus("online");
+        } else if (role == UserRole.sales && "delivery".equalsIgnoreCase(previousRole)) {
+          employee.setAvailabilityStatus("busy");
+        }
+      }
     }
+
     adminUserRepository.save(employee);
     if (oldEmail != null && !oldEmail.equalsIgnoreCase(newEmail)) {
       reassignDeliveryOrdersEmail(oldEmail, newEmail);
@@ -1662,29 +2060,56 @@ public class AdminApiService {
   }
 
   @Transactional(readOnly = true)
-  public Map<String, Object> listCarsAdminPage(boolean onlyPublished, String brand, int page, int size) {
+  public Map<String, Object> listCarsAdminPage(
+      boolean onlyPublished, String brand, String partName, int page, int size) {
     String b = brand != null ? brand.trim() : "";
+    String part = partName != null ? partName.trim() : "";
     Pageable pageable =
         PageRequest.of(
             Math.max(0, page),
             Math.max(1, Math.min(50, size)),
             Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
-    Page<CarModelEntity> result;
-    if (onlyPublished) {
-      if (!b.isBlank()) {
-        result = carModelRepository.findByPublishedTrueAndDeletedAtIsNullAndMakeIgnoreCase(b, pageable);
-      } else {
-        result = carModelRepository.findByPublishedTrueAndDeletedAtIsNull(pageable);
-      }
-    } else {
-      if (!b.isBlank()) {
-        result = carModelRepository.findByDeletedAtIsNullAndMakeIgnoreCase(b, pageable);
-      } else {
-        result = carModelRepository.findByDeletedAtIsNull(pageable);
-      }
-    }
+    Specification<CarModelEntity> spec = carListSpecification(onlyPublished, b, part);
+    Page<CarModelEntity> result = carModelRepository.findAll(spec, pageable);
     List<Map<String, Object>> items = result.getContent().stream().map(this::toCarMap).toList();
     return pagedResponse(items, result.getNumber(), result.getSize(), result.hasNext());
+  }
+
+  /** Distinct cars with ≥1 sold fitted part (non-draft/cancelled/refunded orders). */
+  @Transactional(readOnly = true)
+  public Map<String, Object> getCarsPurchasedSummary() {
+    long count = orderLineRepository.countDistinctPurchasedCars();
+    return Map.of("purchasedCarsCount", count);
+  }
+
+  private static Specification<CarModelEntity> carListSpecification(
+      boolean onlyPublished, String brand, String partName) {
+    return (root, query, cb) -> {
+      List<Predicate> predicates = new ArrayList<>();
+      predicates.add(cb.isNull(root.get("deletedAt")));
+      if (onlyPublished) {
+        predicates.add(cb.isTrue(root.get("published")));
+      }
+      if (brand != null && !brand.isBlank()) {
+        predicates.add(cb.equal(cb.lower(root.get("make")), brand.toLowerCase()));
+      }
+      if (partName != null && !partName.isBlank()) {
+        String pattern = "%" + escapeLikePattern(partName.toLowerCase()) + "%";
+        Subquery<String> sub = query.subquery(String.class);
+        Root<ProductFitmentCar> pfc = sub.from(ProductFitmentCar.class);
+        jakarta.persistence.criteria.Join<ProductFitmentCar, Product> product =
+            pfc.join("product");
+        sub.select(pfc.get("carId"));
+        sub.where(
+            cb.equal(pfc.get("carId"), root.get("id")),
+            cb.isNull(product.get("deletedAt")),
+            cb.or(
+                cb.like(cb.lower(product.get("name")), pattern, '\\'),
+                cb.like(cb.lower(product.get("sku")), pattern, '\\')));
+        predicates.add(cb.exists(sub));
+      }
+      return cb.and(predicates.toArray(Predicate[]::new));
+    };
   }
 
   @Transactional(readOnly = true)
@@ -1707,6 +2132,68 @@ public class AdminApiService {
             .findById(id)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Car not found"));
     return Map.of("car", toCarMap(c));
+  }
+
+  /**
+   * Parts fitted to a car (via {@code product_fitment_cars}) plus units sold from non-draft
+   * order lines.
+   */
+  @Transactional(readOnly = true)
+  public Map<String, Object> getCarPartsSummary(String id) {
+    if (id == null || id.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "car id required");
+    }
+    String carId = id.trim();
+    if (!carModelRepository.existsById(carId)) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Car not found");
+    }
+
+    List<ProductFitmentCar> fitments = fitmentCarRepository.findByCarId(carId);
+    List<String> productIds =
+        fitments.stream().map(ProductFitmentCar::getProductId).distinct().toList();
+
+    Map<String, Long> unitsSoldByProduct = new HashMap<>();
+    if (!productIds.isEmpty()) {
+      for (Object[] row : orderLineRepository.sumSoldQuantityByProductIdForCar(carId)) {
+        if (row[0] == null) continue;
+        unitsSoldByProduct.put(String.valueOf(row[0]), ((Number) row[1]).longValue());
+      }
+    }
+
+    List<Map<String, Object>> parts = new ArrayList<>();
+    long soldPartsCount = 0L;
+    if (!productIds.isEmpty()) {
+      Map<String, Product> productsById = new HashMap<>();
+      for (Product p : productRepository.findAllById(productIds)) {
+        if (p.getDeletedAt() == null) {
+          productsById.put(p.getId(), p);
+        }
+      }
+      for (String productId : productIds) {
+        Product p = productsById.get(productId);
+        if (p == null) continue;
+        long unitsSold = unitsSoldByProduct.getOrDefault(productId, 0L);
+        soldPartsCount += unitsSold;
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("productId", p.getId());
+        row.put("name", p.getName());
+        row.put("sku", p.getSku());
+        row.put("unitsSold", unitsSold);
+        row.put("price", p.getPriceInr() != null ? p.getPriceInr().longValue() : 0L);
+        parts.add(row);
+      }
+      parts.sort(
+          Comparator.comparing(
+              (Map<String, Object> m) -> String.valueOf(m.getOrDefault("name", "")),
+              String.CASE_INSENSITIVE_ORDER));
+    }
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("carId", carId);
+    body.put("totalParts", parts.size());
+    body.put("soldPartsCount", soldPartsCount);
+    body.put("parts", parts);
+    return body;
   }
 
   @Transactional
@@ -1970,7 +2457,8 @@ public class AdminApiService {
         admin.getAvailabilityStatus() == null || admin.getAvailabilityStatus().isBlank()
             ? "offline"
             : admin.getAvailabilityStatus().trim().toLowerCase();
-    if ("offline".equals(stored)) {
+    // Do not auto-promote pending (never logged in) or override intentional offline.
+    if ("offline".equals(stored) || "pending".equals(stored)) {
       return;
     }
     boolean hasActive =
@@ -2020,6 +2508,20 @@ public class AdminApiService {
     m.put("deletedAt", a.getDeletedAt() != null ? a.getDeletedAt().toString() : null);
     m.put("deletedReason", a.getDeletedReason());
     m.put("deletedBy", a.getDeletedBy());
+    if (a.getCustomRoleId() != null) {
+      List<String> pageKeys = customRoleService.pageKeysForRole(a.getCustomRoleId());
+      Map<String, Object> customRole = new LinkedHashMap<>();
+      customRole.put("id", a.getCustomRoleId().toString());
+      customRole.put(
+          "name",
+          customRoleService.findById(a.getCustomRoleId()).map(CustomRole::getName).orElse(null));
+      customRole.put("pageKeys", pageKeys);
+      m.put("customRole", customRole);
+      m.put("pageKeys", pageKeys);
+    } else {
+      m.put("customRole", null);
+      m.put("pageKeys", List.of());
+    }
     return m;
   }
 
@@ -2114,7 +2616,7 @@ public class AdminApiService {
     return counts;
   }
 
-  private Map<String, Object> toAddressMap(com.carnalysys.domain.AddressEntity a) {
+  private Map<String, Object> toAddressMap(AddressEntity a) {
     Map<String, Object> m = new LinkedHashMap<>();
     m.put("id", a.getId().toString());
     m.put("line1", a.getLine1());
@@ -2124,8 +2626,35 @@ public class AdminApiService {
     m.put("pincode", a.getPincode());
     m.put("country", a.getCountry());
     m.put("label", a.getLabel());
+    m.put("gstNumber", a.getGstNumber());
     m.put("isDefault", a.isDefaultAddress());
     return m;
+  }
+
+  /**
+   * GST is stored per address; for profile overview prefer default address GST, else fall back to
+   * most recent address GST (addresses are loaded newest-first).
+   */
+  private static String resolveProfileGstNumber(List<AddressEntity> addresses) {
+    if (addresses == null || addresses.isEmpty()) return null;
+    for (AddressEntity address : addresses) {
+      if (address == null || !address.isDefaultAddress()) continue;
+      String gst = normalizeOptionalUpper(address.getGstNumber());
+      if (gst != null) return gst;
+    }
+    for (AddressEntity address : addresses) {
+      if (address == null) continue;
+      String gst = normalizeOptionalUpper(address.getGstNumber());
+      if (gst != null) return gst;
+    }
+    return null;
+  }
+
+  private static String normalizeOptionalUpper(String value) {
+    if (value == null) return null;
+    String trimmed = value.trim();
+    if (trimmed.isEmpty()) return null;
+    return trimmed.toUpperCase();
   }
 
   private Map<String, Object> toCustomerProfileOrderRow(
@@ -2264,7 +2793,7 @@ public class AdminApiService {
       return false;
     }
     String r = role.trim().toLowerCase();
-    return "sales".equals(r) || "delivery".equals(r);
+    return "sales".equals(r) || "delivery".equals(r) || "custom".equals(r);
   }
 
   private AdminUser requireWorkforceEmployeeByPathId(String employeeId) {
@@ -2344,6 +2873,15 @@ public class AdminApiService {
     UserRole role = UserRole.from(String.valueOf(raw == null ? "" : raw));
     if (role != UserRole.sales && role != UserRole.delivery) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "role must be sales or delivery");
+    }
+    return role;
+  }
+
+  private static UserRole parseCreateEmployeeRole(Object raw) {
+    UserRole role = UserRole.from(String.valueOf(raw == null ? "" : raw));
+    if (role != UserRole.sales && role != UserRole.delivery && role != UserRole.custom) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "role must be sales, delivery, or custom");
     }
     return role;
   }

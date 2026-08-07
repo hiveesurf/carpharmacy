@@ -71,6 +71,8 @@ export function getAddressSaveErrorMessage(err, fallback) {
 
 /** @param {Record<string, unknown>} form */
 export function buildAddressPayload(form) {
+  const wantsBusinessGst = Boolean(form.isBusinessPurchase)
+  const normalizedGst = String(form.gstNumber ?? '').trim().toUpperCase() || null
   return {
     line1: String(form.line1 ?? '').trim(),
     line2: String(form.line2 ?? '').trim() || null,
@@ -79,14 +81,22 @@ export function buildAddressPayload(form) {
     pincode: String(form.pincode ?? '').trim(),
     country: normalizeCountryCode(form.country),
     label: String(form.label ?? '').trim() || null,
+    gstNumber: wantsBusinessGst ? normalizedGst : null,
     isDefault: Boolean(form.isDefault),
   }
 }
+
+/** Indian GSTIN — only applied when the field is non-empty. */
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
 
 /** @param {Record<string, unknown>} form */
 export function validateAddressForm(form) {
   if (!String(form.line1 ?? '').trim()) return 'Address line 1 is required.'
   if (!String(form.city ?? '').trim()) return 'City is required.'
   if (!String(form.pincode ?? '').trim()) return 'Pincode is required.'
+  const gst = String(form.gstNumber ?? '').trim().toUpperCase()
+  if (gst && !GSTIN_RE.test(gst)) {
+    return 'Enter a valid 15-character GSTIN, or leave GST Number blank.'
+  }
   return null
 }

@@ -1,6 +1,8 @@
 package com.carnalysys.testsupport;
 
 import com.carnalysys.config.AppProperties;
+import com.carnalysys.config.RateLimitProperties;
+import com.carnalysys.security.RateLimitService;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -29,6 +31,20 @@ public class WebMvcSliceTestConfiguration {
         new AppProperties.Cors("http://localhost:5173"),
         new AppProperties.Payment(
             "mockpay", "rzp_test_key", "rzp_test_secret", "test-webhook-secret", 600, 300000, 30));
+  }
+
+  @Bean
+  @Primary
+  RateLimitProperties testRateLimitProperties() {
+    RateLimitProperties props = new RateLimitProperties();
+    props.setEnabled(false);
+    return props;
+  }
+
+  @Bean
+  @Primary
+  RateLimitService testRateLimitService(RateLimitProperties properties) {
+    return new RateLimitService(properties);
   }
 
   @Bean

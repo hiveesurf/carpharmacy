@@ -13,6 +13,19 @@ class EmployeeAvailabilityTest {
   }
 
   @Test
+  void effectiveStatus_pendingStaysPendingRegardlessOfOrders() {
+    assertThat(EmployeeAvailability.effectiveStatus("pending", true)).isEqualTo("pending");
+    assertThat(EmployeeAvailability.effectiveStatus("pending", false)).isEqualTo("pending");
+  }
+
+  @Test
+  void isPending_recognizesPendingOnly() {
+    assertThat(EmployeeAvailability.isPending("pending")).isTrue();
+    assertThat(EmployeeAvailability.isPending("online")).isFalse();
+    assertThat(EmployeeAvailability.isPending("offline")).isFalse();
+  }
+
+  @Test
   void effectiveStatus_busyOnlyWhenActiveOrders() {
     assertThat(EmployeeAvailability.effectiveStatus("online", true)).isEqualTo("busy");
     assertThat(EmployeeAvailability.effectiveStatus("free", true)).isEqualTo("busy");

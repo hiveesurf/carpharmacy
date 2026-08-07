@@ -215,44 +215,11 @@ export function PartDetailContent({ part, showKeepBrowsing = false, onKeepBrowsi
                 </p>
               )}
             </div>
-            <p className="font-mono text-[10px] uppercase tracking-wider text-hud">Stock</p>
-            <p className="mt-1 font-sans text-sm text-fog">
-              {part.totalStock <= 0 ? (
-                <span className="text-flare">Out of stock</span>
-              ) : leftInStock <= 0 ? (
-                <span className="text-mist">Maximum quantity in cart</span>
-              ) : (
-                <>
-                  <span className="tabular-nums">{leftInStock}</span> available
-                  <span className="text-mist"> · </span>
-                  <span className="tabular-nums">{part.totalStock}</span> total
-                </>
-              )}
-            </p>
-            <div className="mt-4 rounded-xl border border-steel/60 bg-slate/50 px-3 py-3">
-              <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-wider text-mist">
-                <span className="text-hud">Availability</span>
-                <span className="tabular-nums text-fog">
-                  {leftInStock}/{part.totalStock}
-                </span>
-              </div>
-              <div
-                className="mt-2 h-2 w-full overflow-hidden rounded-full bg-steel/80"
-                role="progressbar"
-                aria-valuenow={leftInStock}
-                aria-valuemin={0}
-                aria-valuemax={part.totalStock}
-              >
-                <div
-                  className={`h-full rounded-full transition-[width] duration-300 ${
-                    leftInStock <= 0 ? 'bg-mist/50' : 'bg-accent'
-                  }`}
-                  style={{
-                    width: `${part.totalStock ? Math.min(100, (leftInStock / part.totalStock) * 100) : 0}%`,
-                  }}
-                />
-              </div>
-            </div>
+            {part.totalStock <= 0 ? (
+              <p className="font-sans text-sm font-semibold text-flare">Out of stock</p>
+            ) : leftInStock <= 0 ? (
+              <p className="font-sans text-sm text-mist">Maximum quantity in cart</p>
+            ) : null}
             <div className="mt-6 flex flex-col gap-3 border-t border-steel/60 pt-6">
               {qty <= 0 ? (
                 <Button

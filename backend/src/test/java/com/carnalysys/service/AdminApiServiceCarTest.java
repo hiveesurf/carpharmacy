@@ -27,6 +27,8 @@ import com.carnalysys.api.ApiException;
 import com.carnalysys.domain.CarFuelOption;
 import com.carnalysys.domain.CarModelEntity;
 import com.carnalysys.domain.CarTransmissionOption;
+import com.carnalysys.domain.Product;
+import com.carnalysys.domain.ProductFitmentCar;
 import com.carnalysys.repo.AdminUserRepository;
 import com.carnalysys.repo.AddressRepository;
 import com.carnalysys.repo.CarFuelOptionRepository;
@@ -58,9 +60,8 @@ import com.carnalysys.repo.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.LinkedHashMap;
-
+import java.util.List;
 import java.util.Map;
-
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -134,7 +135,7 @@ class AdminApiServiceCarTest {
 
   @Mock private ProductExcelParser productExcelParser;
 
-
+  @Mock private CustomRoleService customRoleService;
 
   @InjectMocks private AdminApiService adminApiService;
 
@@ -556,6 +557,109 @@ class AdminApiServiceCarTest {
 
     verify(carModelRepository, never()).save(any());
 
+  }
+
+  @Test
+  void getCarPartsSummaryReturnsZerosWhenNoFitment() {
+    when(carModelRepository.existsById("car-empty")).thenReturn(true);
+    when(fitmentCarRepository.findByCarId("car-empty")).thenReturn(List.of());
+
+    Map<String, Object> summary = adminApiService.getCarPartsSummary("car-empty");
+
+    assertThat(summary.get("carId")).isEqualTo("car-empty");
+    assertThat(summary.get("totalParts")).isEqualTo(0);
+    assertThat(summary.get("soldPartsCount")).isEqualTo(0L);
+    assertThat(summary.get("parts")).isEqualTo(List.of());
+  }
+
+  @Test
+  void getCarPartsSummaryIncludesFittedPartsAndUnitsSold() {
+    when(carModelRepository.existsById("car-1")).thenReturn(true);
+
+    ProductFitmentCar fit1 = new ProductFitmentCar();
+    fit1.setProductId("prod-a");
+    fit1.setCarId("car-1");
+    ProductFitmentCar fit2 = new ProductFitmentCar();
+    fit2.setProductId("prod-b");
+    fit2.setCarId("car-1");
+    when(fitmentCarRepository.findByCarId("car-1")).thenReturn(List.of(fit1, fit2));
+
+    Product pa = new Product();
+    pa.setId("prod-a");
+    pa.setName("Oil Filter");
+    pa.setSku("OF-1");
+    pa.setPriceInr(new java.math.BigDecimal("499"));
+    Product pb = new Product();
+    pb.setId("prod-b");
+    pb.setName("Air Filter");
+    pb.setSku("AF-1");
+    pb.setPriceInr(new java.math.BigDecimal("299"));
+    when(productRepository.findAllById(any())).thenReturn(List.of(pa, pb));
+
+    when(orderLineRepository.sumSoldQuantityByProductIdForCar("car-1"))
+        .thenReturn(List.of(new Object[] {"prod-a", 3L}, new Object[] {"prod-b", 1L}));
+
+    Map<String, Object> summary = adminApiService.getCarPartsSummary("car-1");
+
+    assertThat(summary.get("totalParts")).isEqualTo(2);
+    assertThat(summary.get("soldPartsCount")).isEqualTo(4L);
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> parts = (List<Map<String, Object>>) summary.get("parts");
+    assertThat(parts).hasSize(2);
+    assertThat(parts)
+        .anySatisfy(
+            row -> {
+              assertThat(row.get("productId")).isEqualTo("prod-a");
+              assertThat(row.get("unitsSold")).isEqualTo(3L);
+              assertThat(row.get("sku")).isEqualTo("OF-1");
+            });
+  }
+
+  @Test
+  void getCarPartsSummaryNotFoundWhenCarMissing() {
+    when(carModelRepository.existsById("missing")).thenReturn(false);
+    assertThatThrownBy(() -> adminApiService.getCarPartsSummary("missing"))
+        .isInstanceOf(ApiException.class)
+        .satisfies(
+            ex -> assertThat(((ApiException) ex).status()).isEqualTo(HttpStatus.NOT_FOUND));
+  }
+
+  @Test
+  void getCarsPurchasedSummaryReturnsDistinctCount() {
+    when(orderLineRepository.countDistinctPurchasedCars()).thenReturn(4L);
+    Map<String, Object> summary = adminApiService.getCarsPurchasedSummary();
+    assertThat(summary.get("purchasedCarsCount")).isEqualTo(4L);
+  }
+
+  @Test
+  void getCarsPurchasedSummaryReturnsZeroWhenNone() {
+    when(orderLineRepository.countDistinctPurchasedCars()).thenReturn(0L);
+    Map<String, Object> summary = adminApiService.getCarsPurchasedSummary();
+    assertThat(summary.get("purchasedCarsCount")).isEqualTo(0L);
+  }
+
+  @Test
+  void listCarsAdminPagePassesPartNameIntoSpecificationQuery() {
+    CarModelEntity car = new CarModelEntity();
+    car.setId("car-with-oil");
+    car.setMake("Toyota");
+    car.setModel("Innova");
+    when(carModelRepository.findAll(
+            any(org.springframework.data.jpa.domain.Specification.class),
+            any(org.springframework.data.domain.Pageable.class)))
+        .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(car)));
+
+    Map<String, Object> page =
+        adminApiService.listCarsAdminPage(false, "Toyota", "oil", 0, 10);
+
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> items = (List<Map<String, Object>>) page.get("items");
+    assertThat(items).hasSize(1);
+    assertThat(items.get(0).get("id")).isEqualTo("car-with-oil");
+    verify(carModelRepository)
+        .findAll(
+            any(org.springframework.data.jpa.domain.Specification.class),
+            any(org.springframework.data.domain.Pageable.class));
   }
 
 }

@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.carnalysys.api.GlobalExceptionHandler;
 import com.carnalysys.service.AdminApiService;
+import com.carnalysys.service.AdminReconciliationService;
 import com.carnalysys.service.NotificationService;
 import com.carnalysys.testsupport.ControllerSliceTestBase;
 import com.carnalysys.testsupport.JsonEnvelopeMatchers;
@@ -40,6 +41,7 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
   @Autowired private MockMvc mockMvc;
 
   @MockBean private AdminApiService adminApiService;
+  @MockBean private AdminReconciliationService adminReconciliationService;
   @MockBean private NotificationService notificationService;
 
   @Test
@@ -221,7 +223,14 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void usersOk() throws Exception {
-    when(adminApiService.listUsersPage(anyInt(), anyInt(), nullable(String.class), nullable(String.class)))
+    when(adminApiService.listUsersPage(
+            anyInt(),
+            anyInt(),
+            nullable(String.class),
+            nullable(String.class),
+            nullable(String.class),
+            nullable(String.class),
+            nullable(String.class)))
         .thenReturn(Map.of("items", List.of(), "page", 0, "size", 5, "hasMore", false, "nextPage", 0));
     mockMvc
         .perform(get("/api/v1/admin/users").with(asAdmin()))
@@ -230,8 +239,25 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
   }
 
   @Test
+  void usersForwardsCustomerTypeFilter() throws Exception {
+    when(adminApiService.listUsersPage(
+            eq(0),
+            eq(5),
+            isNull(),
+            isNull(),
+            isNull(),
+            isNull(),
+            eq("business")))
+        .thenReturn(Map.of("items", List.of(), "page", 0, "size", 5, "hasMore", false, "nextPage", 0));
+    mockMvc
+        .perform(get("/api/v1/admin/users").with(asAdmin()).param("customerType", "business"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items").isArray());
+  }
+
+  @Test
   void carsListOkWithBrandFilter() throws Exception {
-    when(adminApiService.listCarsAdminPage(eq(false), eq("Toyota"), eq(0), eq(5)))
+    when(adminApiService.listCarsAdminPage(eq(false), eq("Toyota"), nullable(String.class), eq(0), eq(5)))
         .thenReturn(
             Map.of(
                 "items",
@@ -273,6 +299,57 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
         .perform(get("/api/v1/admin/cars/car_1").with(asAdmin()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.id").value("car_1"));
+  }
+
+  @Test
+  void carPartsSummaryOk() throws Exception {
+    when(adminApiService.getCarPartsSummary("car_1"))
+        .thenReturn(
+            Map.of(
+                "carId",
+                "car_1",
+                "totalParts",
+                2,
+                "soldPartsCount",
+                5,
+                "parts",
+                List.of()));
+    mockMvc
+        .perform(get("/api/v1/admin/cars/car_1/parts-summary").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.carId").value("car_1"))
+        .andExpect(jsonPath("$.data.totalParts").value(2))
+        .andExpect(jsonPath("$.data.soldPartsCount").value(5));
+  }
+
+  @Test
+  void carsPurchasedSummaryOk() throws Exception {
+    when(adminApiService.getCarsPurchasedSummary()).thenReturn(Map.of("purchasedCarsCount", 7));
+    mockMvc
+        .perform(get("/api/v1/admin/cars/purchased-summary").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.purchasedCarsCount").value(7));
+  }
+
+  @Test
+  void carsListForwardsPartNameFilter() throws Exception {
+    when(adminApiService.listCarsAdminPage(eq(false), isNull(), eq("oil filter"), eq(0), eq(5)))
+        .thenReturn(
+            Map.of(
+                "items",
+                List.of(Map.of("id", "car_oil")),
+                "page",
+                0,
+                "size",
+                5,
+                "hasMore",
+                false,
+                "nextPage",
+                0));
+    mockMvc
+        .perform(get("/api/v1/admin/cars").with(asAdmin()).param("partName", "oil filter"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items[0].id").value("car_oil"));
   }
 
   @Test

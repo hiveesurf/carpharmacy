@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ff6b35" />
+    <title>You're offline — CarPharmacy</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #eef1f4;
+        --fog: #1a1d24;
+        --mist: #5c6370;
+        --accent: #ff6b35;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+        padding: 2rem;
+        font-family: 'Source Sans 3', system-ui, sans-serif;
+        background: linear-gradient(160deg, #eef1f4 0%, #e4e8ec 55%, #d8dde4 100%);
+        color: var(--fog);
+      }
+      main {
+        max-width: 28rem;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      p {
+        margin: 0 0 1.5rem;
+        color: var(--mist);
+        line-height: 1.5;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 0.75rem;
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        padding: 0.75rem 1.25rem;
+        cursor: pointer;
+      }
+      button:hover {
+        filter: brightness(0.96);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>You're offline</h1>
+      <p>Check your connection and try again. Catalog pages you visited recently may still work when you're back online.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>

@@ -8,11 +8,15 @@ import {
   Users,
   UserCog,
   CarFront,
+  BarChart3,
+  Scale,
   Menu,
   X,
 } from 'lucide-react'
 import { useAuth } from '../context/useAuth.js'
 import { DELIVERY_HOME_PATH, DELIVERY_LIST_PATH } from '../lib/deliveryRoutes.js'
+import { navItemsForCustomRole } from '../lib/adminPagePermissions.js'
+import { AdminPageGuard } from '../components/auth/AdminPageGuard.jsx'
 
 function DeliveryBottomNav() {
   const tabs = [
@@ -46,7 +50,7 @@ function DeliveryBottomNav() {
   )
 }
 
-function navByRole(role) {
+function navByRole(role, pageKeys) {
   if (role === 'delivery') {
     return [
       {
@@ -59,6 +63,10 @@ function navByRole(role) {
     ]
   }
 
+  if (role === 'custom') {
+    return navItemsForCustomRole(pageKeys)
+  }
+
   const base = [
     {
       to: '/admin',
@@ -68,11 +76,13 @@ function navByRole(role) {
     },
   ]
   if (role === 'super_admin' || role === 'sales') {
-    base.push({ to: '/admin/products', label: 'Products', icon: Package })
+    base.push({ to: '/admin/products', label: 'Inventory', icon: Package })
   }
   if (role === 'super_admin') {
     base.push({ to: '/admin/cars', label: 'Cars', icon: CarFront })
     base.push({ to: '/admin/categories', label: 'Categories', icon: FolderTree })
+    base.push({ to: '/admin/sales-report', label: 'Sales report', icon: BarChart3 })
+    base.push({ to: '/admin/reconciliation', label: 'Reconciliation', icon: Scale })
     base.push({ to: '/admin/users', label: 'Users', icon: Users })
     base.push({ to: '/admin/employees', label: 'Employees', icon: UserCog })
   }
@@ -80,8 +90,8 @@ function navByRole(role) {
   return base
 }
 
-function NavItems({ onNavigate, role }) {
-  const nav = navByRole(role)
+function NavItems({ onNavigate, role, pageKeys }) {
+  const nav = navByRole(role, pageKeys)
   return (
     <nav className="flex flex-col gap-1 p-2">
       {nav.map(({ to, end, label, icon: Icon }) => (
@@ -109,8 +119,10 @@ function NavItems({ onNavigate, role }) {
 
 export function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { sessionRole } = useAuth()
-  const role = ['super_admin', 'sales', 'delivery'].includes(sessionRole) ? sessionRole : 'super_admin'
+  const { sessionRole, adminPageKeys } = useAuth()
+  const role = ['super_admin', 'sales', 'delivery', 'custom'].includes(sessionRole)
+    ? sessionRole
+    : 'super_admin'
   const sidebarSectionLabel = role === 'delivery' ? 'DELIVERY' : 'ADMIN'
 
   const isDelivery = role === 'delivery'
@@ -129,7 +141,11 @@ export function AdminLayout() {
           </button>
           {mobileOpen && (
             <div className="admin-card mt-2 p-2">
-              <NavItems role={role} onNavigate={() => setMobileOpen(false)} />
+              <NavItems
+                role={role}
+                pageKeys={adminPageKeys}
+                onNavigate={() => setMobileOpen(false)}
+              />
             </div>
           )}
         </div>
@@ -139,7 +155,7 @@ export function AdminLayout() {
             <p className="px-2 pb-2 font-sans text-[10px] font-semibold uppercase tracking-[0.2em] text-mist">
               {sidebarSectionLabel}
             </p>
-            <NavItems role={role} />
+            <NavItems role={role} pageKeys={adminPageKeys} />
             <Link
               to="/"
               className="mt-3 block px-3 py-2 font-sans text-xs font-medium text-accent underline-offset-2 hover:underline"
@@ -150,7 +166,9 @@ export function AdminLayout() {
         </aside>
 
         <div className="min-w-0 flex-1">
-          <Outlet />
+          <AdminPageGuard>
+            <Outlet />
+          </AdminPageGuard>
         </div>
       </div>
       {isDelivery ? <DeliveryBottomNav /> : null}

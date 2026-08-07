@@ -4,7 +4,8 @@ public enum UserRole {
   user,
   super_admin,
   sales,
-  delivery;
+  delivery,
+  custom;
 
   public static UserRole from(String raw) {
     if (raw == null || raw.isBlank()) return user;

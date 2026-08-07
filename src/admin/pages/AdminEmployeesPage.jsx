@@ -20,7 +20,7 @@ import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
 import { employeePhotoDisplayUrl } from '../../lib/adminEmployeeAssets.js'
 import { EmployeeAvatar } from '../components/EmployeeAvatar.jsx'
-import { normalizeEmployeePhone, validateEmployeeForm } from '../../lib/employeeFormValidation.js'
+import { normalizeEmployeePhone, validateEmployeeEditForm } from '../../lib/employeeFormValidation.js'
 import {
   employeeAvailabilityFromRow,
   normalizeEmployeeAvailability,
@@ -51,7 +51,7 @@ function emptyForm() {
   return { phone: '', role: 'sales', name: '' }
 }
 
-/** @returns {'online' | 'busy' | 'offline'} */
+/** @returns {'online' | 'busy' | 'offline' | 'pending'} */
 function getEmployeeDisplayStatus(row) {
   return employeeAvailabilityFromRow(row)
 }
@@ -83,8 +83,9 @@ function buildDisplaySummary(employees, apiSummary) {
   let offline = 0
   for (const e of employees) {
     const a = employeeAvailabilityFromRow(e)
+    // Pending is neither online nor offline — exclude from both summary buckets.
     if (a === 'online') online += 1
-    else if (a !== 'busy') offline += 1
+    else if (a === 'offline') offline += 1
   }
   return {
     total: typeof apiSummary?.total === 'number' ? apiSummary.total : employees.length,
@@ -104,12 +105,16 @@ const ROLE_BADGE_STYLE = {
 }
 
 const TABLE_TH =
-  'px-3 py-2 align-middle text-left text-xs font-semibold text-[#565959] dark:text-mist lg:px-4'
-const TABLE_CELL = 'px-3 py-2 align-middle text-left text-sm text-[#0f1111] dark:text-fog lg:px-4'
+  'px-3 py-2.5 align-middle text-left text-xs font-semibold text-[#565959] dark:text-mist'
+const TABLE_CELL = 'px-3 py-2.5 align-middle text-left text-sm text-[#0f1111] dark:text-fog'
 const TABLE_CELL_META =
-  'px-3 py-2 align-middle text-left text-sm text-[#565959] dark:text-mist lg:px-4'
+  'px-3 py-2.5 align-middle text-left text-sm text-[#565959] dark:text-mist'
 const TABLE_ROW =
-  'h-10 transition-colors hover:bg-[#f7fafa] dark:hover:bg-steel/15 [&>td]:align-middle'
+  'min-h-10 transition-colors hover:bg-[#f7fafa] dark:hover:bg-steel/15 [&>td]:align-middle'
+
+/** Login/Logout: fixed width + extra left pad on Logout so the pair never collide. */
+const TABLE_LOGIN_COL = 'w-[7.5rem] min-w-[7.5rem] whitespace-nowrap'
+const TABLE_LOGOUT_COL = 'w-[9rem] min-w-[9rem] whitespace-nowrap !pl-6'
 
 const WORKFORCE_FILTER_WRAP = 'min-w-[11.5rem] sm:min-w-[12.5rem]'
 const WORKFORCE_FILTER_SELECT = `${filterInputClass} w-full min-w-[11.5rem] sm:min-w-[12.5rem]`
@@ -125,20 +130,25 @@ const DELETED_MENU_EST_HEIGHT = 88
 const DETAIL_LABEL = 'text-[10px] font-semibold uppercase tracking-wide text-[#565959] dark:text-mist'
 const DETAIL_VALUE = 'mt-0.5 text-sm text-[#0f1111] dark:text-fog'
 
-function formatRoleLabel(role) {
+function formatRoleLabel(role, customRoleName) {
   const r = String(role ?? '').toLowerCase()
   if (r === 'sales') return 'Sales'
   if (r === 'delivery') return 'Delivery'
+  if (r === 'custom') {
+    const name = String(customRoleName ?? '').trim()
+    return name || 'Custom'
+  }
   return role ? String(role) : '—'
 }
 
-function RoleBadge({ role }) {
+function RoleBadge({ role, customRoleName }) {
+  const label = formatRoleLabel(role, customRoleName)
   return (
     <span
-      className="inline-flex h-6 min-w-[4.25rem] items-center justify-center rounded-full px-2.5 text-[11px] font-medium leading-none"
+      className="inline-block w-fit max-w-full rounded-full px-3 py-2 text-left text-[11px] font-medium leading-snug"
       style={ROLE_BADGE_STYLE}
     >
-      {formatRoleLabel(role)}
+      {label}
     </span>
   )
 }
@@ -156,12 +166,17 @@ function AvailabilityBadge({ row }) {
       pill:
         'border-amber-400/50 bg-amber-500/12 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/18 dark:text-amber-100',
     },
+    pending: {
+      label: 'Pending',
+      pill:
+        'border-yellow-400/55 bg-yellow-400/15 text-yellow-900 dark:border-yellow-500/45 dark:bg-yellow-500/18 dark:text-yellow-100',
+    },
     offline: {
       label: 'Offline',
       pill: 'border-zinc-300/80 bg-zinc-200/70 text-zinc-700 dark:border-zinc-600/60 dark:bg-zinc-700/50 dark:text-zinc-200',
     },
   }
-  const c = config[status]
+  const c = config[status] ?? config.offline
   return <span className={`${STATUS_BADGE_PILL} ${c.pill}`}>{c.label}</span>
 }
 
@@ -507,7 +522,9 @@ function DeletedEmployeeDetailsModal({ employee, onClose }) {
           <div>
             <dt className={DETAIL_LABEL}>Role</dt>
             <dd className={DETAIL_VALUE}>
-              {employee.role ? formatRoleLabel(employee.role) : 'Not available'}
+              {employee.role
+                ? formatRoleLabel(employee.role, employee.customRole?.name)
+                : 'Not available'}
             </dd>
           </div>
           <div>
@@ -662,6 +679,7 @@ export function AdminEmployeesPage() {
         if (statusFilter === 'online' && displayStatus !== 'online') return false
         if (statusFilter === 'offline' && displayStatus !== 'offline') return false
         if (statusFilter === 'busy' && displayStatus !== 'busy') return false
+        if (statusFilter === 'pending' && displayStatus !== 'pending') return false
       }
       return employeeMatchesSearch(row, searchQuery)
     })
@@ -676,10 +694,18 @@ export function AdminEmployeesPage() {
       const employee = await adminService.getEmployee(phone)
       if (!employee) return
       setEditingPhone(phone)
+      const role = String(employee.role ?? '').toLowerCase()
       setEditForm({
         phone: employee.phone ?? '',
         name: employee.name ?? '',
-        role: employee.role === 'delivery' ? 'delivery' : 'sales',
+        role: role === 'delivery' ? 'delivery' : role === 'custom' ? 'custom' : 'sales',
+        customRoleName: employee.customRole?.name ?? '',
+        pageKeys: Array.isArray(employee.pageKeys)
+          ? employee.pageKeys
+          : Array.isArray(employee.customRole?.pageKeys)
+            ? employee.customRole.pageKeys
+            : [],
+        customRoleId: employee.customRole?.id ?? '',
       })
       setEditExistingPhoto(typeof employee.photoUrl === 'string' ? employee.photoUrl : '')
       setEditPhoto('')
@@ -694,7 +720,7 @@ export function AdminEmployeesPage() {
   async function submitEdit(e) {
     e.preventDefault()
     if (!editingPhone) return
-    const validation = validateEmployeeForm(editForm)
+    const validation = validateEmployeeEditForm(editForm)
     if (!validation.values) {
       setEditErrors(validation.errors)
       return
@@ -704,6 +730,9 @@ export function AdminEmployeesPage() {
     setError(null)
     try {
       const body = { ...validation.values }
+      if (body.role === 'custom' && editForm.customRoleId) {
+        body.customRoleId = editForm.customRoleId
+      }
       if (clearEditPhoto) body.photo = ''
       else if (editPhoto) body.photo = editPhoto
       await adminService.updateEmployee(editingPhone, body)
@@ -945,6 +974,7 @@ export function AdminEmployeesPage() {
                 <option value="">All Roles</option>
                 <option value="sales">Sales</option>
                 <option value="delivery">Delivery</option>
+                <option value="custom">Custom</option>
               </select>
             </div>
             <div className={WORKFORCE_FILTER_WRAP}>
@@ -976,6 +1006,7 @@ export function AdminEmployeesPage() {
                   <option value="online">Online</option>
                   <option value="offline">Offline</option>
                   <option value="busy">Busy</option>
+                  <option value="pending">Pending</option>
                 </select>
               </div>
             ) : null}
@@ -997,9 +1028,9 @@ export function AdminEmployeesPage() {
               </p>
             </div>
           </div>
-          <div className="overflow-x-auto lg:overflow-x-visible">
-            <table className="w-full border-collapse text-left lg:table-fixed">
-              <colgroup className="hidden lg:table-column-group">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[56rem] border-collapse text-left table-fixed">
+              <colgroup>
                 {isDeletedView ? (
                   <>
                     <col style={{ width: '26%' }} />
@@ -1010,12 +1041,12 @@ export function AdminEmployeesPage() {
                   </>
                 ) : (
                   <>
-                    <col style={{ width: '24%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '12%' }} />
                     <col style={{ width: '16%' }} />
                     <col style={{ width: '10%' }} />
-                    <col style={{ width: '10%' }} />
-                    <col style={{ width: '14%' }} />
-                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '120px' }} />
+                    <col style={{ width: '144px' }} />
                     <col style={{ width: '12%' }} />
                   </>
                 )}
@@ -1036,8 +1067,8 @@ export function AdminEmployeesPage() {
                       <th className={TABLE_TH}>Contact</th>
                       <th className={TABLE_TH}>Role</th>
                       <th className={TABLE_TH}>Status</th>
-                      <th className={TABLE_TH}>Login</th>
-                      <th className={TABLE_TH}>Logout</th>
+                      <th className={`${TABLE_TH} ${TABLE_LOGIN_COL}`}>Login</th>
+                      <th className={`${TABLE_TH} ${TABLE_LOGOUT_COL}`}>Logout</th>
                       <th className={`${TABLE_TH} text-right`}>Actions</th>
                     </>
                   )}
@@ -1087,7 +1118,7 @@ export function AdminEmployeesPage() {
                             </td>
                             <td className={`${TABLE_CELL} font-mono tabular-nums`}>{row.phone || '—'}</td>
                             <td className={TABLE_CELL}>
-                              <RoleBadge role={row.role} />
+                              <RoleBadge role={row.role} customRoleName={row.customRole?.name} />
                             </td>
                             <td className={`${TABLE_CELL_META} ${DELETED_CELL_AT}`}>
                               {row.deletedAt ? formatDateTime(row.deletedAt) : 'Not available'}
@@ -1118,15 +1149,15 @@ export function AdminEmployeesPage() {
                             </td>
                             <td className={`${TABLE_CELL} font-mono tabular-nums`}>{row.phone || '—'}</td>
                             <td className={TABLE_CELL}>
-                              <RoleBadge role={row.role} />
+                              <RoleBadge role={row.role} customRoleName={row.customRole?.name} />
                             </td>
                             <td className={TABLE_CELL}>
                               <AvailabilityBadge row={row} />
                             </td>
-                            <td className={`${TABLE_CELL_META} whitespace-nowrap`}>
+                            <td className={`${TABLE_CELL_META} ${TABLE_LOGIN_COL}`}>
                               {formatDateTime(row.lastLoginAt)}
                             </td>
-                            <td className={`${TABLE_CELL_META} whitespace-nowrap`}>
+                            <td className={`${TABLE_CELL_META} ${TABLE_LOGOUT_COL}`}>
                               {formatDateTime(row.lastLogoutAt)}
                             </td>
                             <td className={`${TABLE_CELL} text-right`}>
@@ -1296,7 +1327,7 @@ export function AdminEmployeesPage() {
                   </div>
                   <div>
                     <input
-                      placeholder="Name *"
+                      placeholder="Full Name *"
                       value={editForm.name}
                       onChange={(e) => {
                         setEditForm((f) => ({ ...f, name: e.target.value }))
@@ -1308,19 +1339,41 @@ export function AdminEmployeesPage() {
                     <FieldError message={editErrors.name} />
                   </div>
                   <div>
-                    <select
-                      value={editForm.role}
-                      onChange={(e) => {
-                        setEditForm((f) => ({ ...f, role: e.target.value }))
-                        clearEditFieldError('role')
-                      }}
-                      className={editModalFieldClass(editErrors.role)}
-                      aria-invalid={!!editErrors.role}
-                    >
-                      <option value="sales">Sales</option>
-                      <option value="delivery">Delivery</option>
-                    </select>
-                    <FieldError message={editErrors.role} />
+                    {editForm.role === 'custom' ? (
+                      <>
+                        <div
+                          className={`${editModalFieldClass(false)} flex flex-col justify-center gap-0.5`}
+                        >
+                          <span className="text-sm text-fog">
+                            {editForm.customRoleName || 'Custom role'}
+                          </span>
+                          <span className="text-[11px] text-mist">
+                            {Array.isArray(editForm.pageKeys) && editForm.pageKeys.length
+                              ? `Pages: ${editForm.pageKeys.join(', ')}`
+                              : 'Page permissions managed when creating the role'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[11px] text-mist">
+                          Role type is fixed for custom employees here (permission editing comes later).
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <select
+                          value={editForm.role}
+                          onChange={(e) => {
+                            setEditForm((f) => ({ ...f, role: e.target.value }))
+                            clearEditFieldError('role')
+                          }}
+                          className={editModalFieldClass(editErrors.role)}
+                          aria-invalid={!!editErrors.role}
+                        >
+                          <option value="sales">Sales</option>
+                          <option value="delivery">Delivery</option>
+                        </select>
+                        <FieldError message={editErrors.role} />
+                      </>
+                    )}
                   </div>
                   <div />
                 </div>

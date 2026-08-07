@@ -21,14 +21,17 @@ public final class EmployeeAvailability {
   }
 
   /**
-   * Effective label for UI: offline only when stored status is offline; busy when stored busy or
-   * active assigned orders exist; online for online/free when not busy.
+   * Effective label for UI: pending until first login; offline only when stored offline; busy when
+   * active assigned orders exist; online for online/free/busy when not busy with orders.
    */
   public static String effectiveStatus(String availabilityStatus, boolean hasActiveAssignedOrders) {
     String raw =
         availabilityStatus == null || availabilityStatus.isBlank()
             ? "offline"
             : availabilityStatus.trim().toLowerCase();
+    if ("pending".equals(raw)) {
+      return "pending";
+    }
     if ("offline".equals(raw)) {
       return "offline";
     }
@@ -45,5 +48,11 @@ public final class EmployeeAvailability {
     String raw =
         availabilityStatus == null ? "" : availabilityStatus.trim().toLowerCase();
     return "online".equals(raw) || "free".equals(raw);
+  }
+
+  public static boolean isPending(String availabilityStatus) {
+    String raw =
+        availabilityStatus == null ? "" : availabilityStatus.trim().toLowerCase();
+    return "pending".equals(raw);
   }
 }

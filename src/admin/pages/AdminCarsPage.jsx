@@ -8,14 +8,15 @@ import {
   EyeOff,
   Layers,
   MoreVertical,
+  Package,
   Pencil,
-  Plus,
   RefreshCw,
   Save,
   Search,
   Trash2,
   X,
 } from 'lucide-react'
+import { AdminCarNameCombobox } from '../components/AdminCarNameCombobox.jsx'
 import { AdminStatCard } from '../components/AdminStatCard.jsx'
 import { carBrandLogoUrl, carListImageUrl } from '../../lib/adminCarAssets.js'
 import { computeCarKpis, matchesAdminCarSearch } from '../../lib/adminCarListStats.js'
@@ -23,6 +24,11 @@ import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
 import { validateCarForm } from '../../lib/carFormValidation.js'
+import {
+  carsListEmptyStateCopy,
+  carsListEmptyStateCtaPath,
+  carsListFilteredEmptyStateCopy,
+} from '../../lib/carPartsSummary.js'
 import {
   carIdentityKey,
   dedupeBrandLabelsFromCars,
@@ -61,7 +67,7 @@ const istDateFormatter = new Intl.DateTimeFormat(undefined, {
 })
 
 const compactSearchClass =
-  'h-9 w-full min-w-0 flex-1 rounded-xl border border-steel/80 bg-ink/40 py-1.5 pl-8 pr-2.5 text-xs text-fog placeholder:text-mist focus:border-accent/50 focus:outline-none'
+  'h-9 w-full min-w-0 rounded-xl border border-steel/80 bg-ink/40 py-1.5 pl-8 pr-2.5 text-xs text-fog placeholder:text-mist focus:border-accent/50 focus:outline-none'
 
 const headerBtnSecondary =
   'inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-steel/80 bg-ink/30 px-3 font-mono text-[10px] font-medium uppercase tracking-wider text-fog transition-colors hover:border-accent/50 hover:bg-accent/5 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50'
@@ -332,6 +338,7 @@ export function AdminCarsPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const [allCars, setAllCars] = useState([])
+  const [catalogCars, setCatalogCars] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [successMessage, setSuccessMessage] = useState(null)
@@ -339,10 +346,18 @@ export function AdminCarsPage() {
   const [listRefresh, setListRefresh] = useState(0)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [partNameSearch, setPartNameSearch] = useState('')
+  const [debouncedPartName, setDebouncedPartName] = useState('')
   const [brandFilter, setBrandFilter] = useState('')
   const [visibleCount, setVisibleCount] = useState(LIST_PAGE_SIZE)
+  const [purchasedCarsCount, setPurchasedCarsCount] = useState(null)
+  const [purchasedLoading, setPurchasedLoading] = useState(true)
   const [openActionsCarId, setOpenActionsCarId] = useState(null)
   const [viewCar, setViewCar] = useState(null)
+  const [viewPartsSummary, setViewPartsSummary] = useState(null)
+  const [viewPartsLoading, setViewPartsLoading] = useState(false)
+  const [viewPartsError, setViewPartsError] = useState(null)
+  const viewLoadSeq = useRef(0)
 
   const [editingId, setEditingId] = useState(null)
   const [editForm, setEditForm] = useState(emptyForm())
@@ -364,13 +379,18 @@ export function AdminCarsPage() {
     setEditErrors({})
   }, [])
 
-  const brands = useMemo(() => dedupeBrandLabelsFromCars(allCars), [allCars])
-  const kpis = useMemo(() => computeCarKpis(allCars), [allCars])
+  const brands = useMemo(() => dedupeBrandLabelsFromCars(catalogCars), [catalogCars])
+  const kpis = useMemo(() => computeCarKpis(catalogCars), [catalogCars])
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS)
     return () => window.clearTimeout(t)
   }, [search])
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedPartName(partNameSearch.trim()), SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(t)
+  }, [partNameSearch])
 
   useEffect(() => {
     const state = location.state
@@ -387,6 +407,35 @@ export function AdminCarsPage() {
     if (match && match !== brandFilter) setBrandFilter(match)
   }, [brands, brandFilter])
 
+  const loadPurchasedSummary = useCallback(async () => {
+    setPurchasedLoading(true)
+    try {
+      const summary = await adminService.getPurchasedCarsSummary()
+      setPurchasedCarsCount(summary.purchasedCarsCount)
+    } catch {
+      setPurchasedCarsCount(null)
+    } finally {
+      setPurchasedLoading(false)
+    }
+  }, [])
+
+  const loadCatalogCars = useCallback(async () => {
+    try {
+      let page = 0
+      let hasMore = true
+      const merged = []
+      while (hasMore) {
+        const result = await adminService.listCarsPage({ page, size: 50 })
+        merged.push(...(result.items || []))
+        hasMore = result.hasMore
+        page = result.nextPage
+      }
+      setCatalogCars(merged.filter((x) => !x?.deleted && !x?.deletedAt))
+    } catch {
+      setCatalogCars([])
+    }
+  }, [])
+
   const loadAllCars = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -394,8 +443,9 @@ export function AdminCarsPage() {
       let page = 0
       let hasMore = true
       const merged = []
+      const partName = debouncedPartName || undefined
       while (hasMore) {
-        const result = await adminService.listCarsPage({ page, size: 50 })
+        const result = await adminService.listCarsPage({ page, size: 50, partName })
         merged.push(...(result.items || []))
         hasMore = result.hasMore
         page = result.nextPage
@@ -407,11 +457,19 @@ export function AdminCarsPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [debouncedPartName])
+
+  useEffect(() => {
+    void loadCatalogCars()
+  }, [loadCatalogCars, listRefresh])
 
   useEffect(() => {
     loadAllCars()
   }, [loadAllCars, listRefresh])
+
+  useEffect(() => {
+    void loadPurchasedSummary()
+  }, [loadPurchasedSummary, listRefresh])
 
   useEffect(() => {
     let cancelled = false
@@ -430,7 +488,9 @@ export function AdminCarsPage() {
 
   useEffect(() => {
     setVisibleCount(LIST_PAGE_SIZE)
-  }, [debouncedSearch, brandFilter])
+  }, [debouncedSearch, debouncedPartName, brandFilter])
+
+  const hasActiveFilters = Boolean(debouncedSearch || debouncedPartName || brandFilter)
 
   const filteredCars = useMemo(() => {
     let list = allCars
@@ -443,6 +503,21 @@ export function AdminCarsPage() {
     }
     return list
   }, [allCars, brandFilter, debouncedSearch])
+
+  const listEmptyKind =
+    !loading && filteredCars.length === 0
+      ? hasActiveFilters
+        ? 'filtered-empty'
+        : catalogCars.length === 0
+          ? 'catalog-empty'
+          : 'filtered-empty'
+      : 'results'
+
+  function clearFilters() {
+    setSearch('')
+    setPartNameSearch('')
+    setBrandFilter('')
+  }
 
   const visibleItems = useMemo(
     () => filteredCars.slice(0, visibleCount),
@@ -485,6 +560,42 @@ export function AdminCarsPage() {
       setClearEditBrandLogo(false)
     } catch (e) {
       setError(getFetchErrorMessage(e))
+    }
+  }
+
+  const closeViewModal = useCallback(() => {
+    viewLoadSeq.current += 1
+    setViewCar(null)
+    setViewPartsSummary(null)
+    setViewPartsLoading(false)
+    setViewPartsError(null)
+  }, [])
+
+  async function openView(car) {
+    if (!car?.id) return
+    const seq = ++viewLoadSeq.current
+    setViewCar(car)
+    setViewPartsSummary(null)
+    setViewPartsLoading(true)
+    setViewPartsError(null)
+    try {
+      const [fresh, summary] = await Promise.all([
+        adminService.getCar(car.id),
+        adminService.getCarPartsSummary(car.id),
+      ])
+      if (viewLoadSeq.current !== seq) return
+      if (fresh) setViewCar(fresh)
+      setViewPartsSummary(
+        summary && typeof summary === 'object'
+          ? summary
+          : { carId: car.id, totalParts: 0, soldPartsCount: 0, parts: [] },
+      )
+    } catch (e) {
+      if (viewLoadSeq.current !== seq) return
+      setViewPartsError(getFetchErrorMessage(e))
+      setViewPartsSummary({ carId: car.id, totalParts: 0, soldPartsCount: 0, parts: [] })
+    } finally {
+      if (viewLoadSeq.current === seq) setViewPartsLoading(false)
     }
   }
 
@@ -644,16 +755,10 @@ export function AdminCarsPage() {
         <div className="min-w-0">
           <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-fog md:text-3xl">Cars</h1>
           <p className="mt-1 max-w-xl text-sm text-mist">
-            Add and manage car catalog by brand with optional photos.
+            Manage the vehicle catalog used for product fitment. New cars are created from Inventory when adding a
+            product.
           </p>
         </div>
-        <Link
-          to="/admin/cars/add"
-          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-5 font-display text-sm font-bold uppercase tracking-wide text-on-accent shadow-md transition-[filter] hover:brightness-95"
-        >
-          <Plus className="h-4 w-4" strokeWidth={2.5} />
-          Add car
-        </Link>
       </div>
 
       {successMessage ? (
@@ -673,7 +778,7 @@ export function AdminCarsPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <AdminStatCard
           label="Total cars"
           value={loading ? '…' : kpis.total}
@@ -704,54 +809,105 @@ export function AdminCarsPage() {
           accent="text-hud"
           helper="Unique makes in catalog"
         />
+        <AdminStatCard
+          label="Purchased Cars"
+          value={purchasedLoading ? '…' : purchasedCarsCount ?? '—'}
+          icon={Package}
+          accent="text-flare"
+          tone="joined"
+          helper="Cars with at least one part sold"
+        />
       </div>
 
-      <div className="admin-card flex flex-col gap-3 rounded-2xl p-3 sm:flex-row sm:flex-wrap sm:items-center sm:p-4">
-        <div className="relative min-w-0 flex-1 sm:max-w-md">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mist"
-            aria-hidden
-          />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search brand, model, variant, year…"
-            aria-label="Search cars"
-            className={compactSearchClass}
-            autoComplete="off"
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={brandFilter}
-            onChange={(e) => setBrandFilter(e.target.value)}
-            className={`${toolbarSelectClass} min-w-[10rem]`}
-            aria-label="Filter by brand"
-          >
-            <option value="">All brands</option>
-            {brands.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => bumpList()}
-            disabled={loading}
-            className={headerBtnSecondary}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} strokeWidth={1.75} />
-            Refresh
-          </button>
+      <div className="admin-card flex flex-col gap-3 rounded-2xl p-3 sm:p-4">
+        <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-end sm:gap-2">
+          <div className="w-full min-w-0 sm:max-w-[12.5rem] sm:flex-1 sm:basis-0">
+            <label htmlFor="cars-search-by-name" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-mist">
+              Search by car name
+            </label>
+            <AdminCarNameCombobox
+              id="cars-search-by-name"
+              value={search}
+              onChange={setSearch}
+              cars={catalogCars}
+              inputClassName={compactSearchClass}
+              placeholder="Make, model, variant…"
+              aria-label="Search by car name"
+            />
+          </div>
+          <div className="w-full min-w-0 sm:max-w-[12.5rem] sm:flex-1 sm:basis-0">
+            <label htmlFor="cars-filter-by-part" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-mist">
+              Filter by part name
+            </label>
+            <div className="relative">
+              <Package
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mist"
+                aria-hidden
+              />
+              <input
+                id="cars-filter-by-part"
+                type="search"
+                value={partNameSearch}
+                onChange={(e) => setPartNameSearch(e.target.value)}
+                placeholder="Part name or SKU…"
+                aria-label="Filter by part name"
+                className={compactSearchClass}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-nowrap items-end gap-1.5">
+            <div className="min-w-0 shrink-0">
+              <label htmlFor="cars-brand-filter" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-mist">
+                Brand
+              </label>
+              <select
+                id="cars-brand-filter"
+                value={brandFilter}
+                onChange={(e) => setBrandFilter(e.target.value)}
+                className={`${toolbarSelectClass} w-[9rem]`}
+                aria-label="Filter by brand"
+              >
+                <option value="">All brands</option>
+                {brands.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => bumpList()}
+              disabled={loading}
+              className={`${headerBtnSecondary} shrink-0 px-2.5`}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} strokeWidth={1.75} />
+              Refresh
+            </button>
+            {hasActiveFilters ? (
+              <button type="button" onClick={clearFilters} className={`${headerBtnSecondary} shrink-0 px-2.5`}>
+                Clear filters
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      {debouncedSearch ? (
+      {debouncedSearch || debouncedPartName ? (
         <p className="font-mono text-[10px] uppercase tracking-wider text-mist">
-          Showing {filteredCars.length} match{filteredCars.length === 1 ? '' : 'es'} for &ldquo;{debouncedSearch}
-          &rdquo;
+          Showing {filteredCars.length} match{filteredCars.length === 1 ? '' : 'es'}
+          {debouncedSearch ? (
+            <>
+              {' '}
+              for car &ldquo;{debouncedSearch}&rdquo;
+            </>
+          ) : null}
+          {debouncedPartName ? (
+            <>
+              {debouncedSearch ? ' ·' : ''} part &ldquo;{debouncedPartName}&rdquo;
+            </>
+          ) : null}
         </p>
       ) : null}
 
@@ -794,9 +950,28 @@ export function AdminCarsPage() {
               ) : visibleItems.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-mist">
-                    {debouncedSearch || brandFilter
-                      ? 'No cars match your filters — try adjusting search or brand.'
-                      : 'No cars in catalog — add one with the button above.'}
+                    {listEmptyKind === 'filtered-empty' ? (
+                      <span className="inline-flex flex-col items-center gap-3">
+                        <span>{carsListFilteredEmptyStateCopy()}</span>
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          className="inline-flex h-9 items-center justify-center rounded-xl border border-accent/50 bg-accent/10 px-4 font-mono text-[10px] font-medium uppercase tracking-wider text-accent transition-colors hover:bg-accent/20"
+                        >
+                          Clear filters
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="inline-flex flex-col items-center gap-3">
+                        <span>{carsListEmptyStateCopy()}</span>
+                        <Link
+                          to={carsListEmptyStateCtaPath()}
+                          className="inline-flex h-9 items-center justify-center rounded-xl border border-accent/50 bg-accent/10 px-4 font-mono text-[10px] font-medium uppercase tracking-wider text-accent transition-colors hover:bg-accent/20"
+                        >
+                          Go to Add Product
+                        </Link>
+                      </span>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -857,8 +1032,8 @@ export function AdminCarsPage() {
                           onOpenChange={(next) => setOpenActionsCarId(next ? row.id : null)}
                           disabled={busy}
                           onView={(c) => {
-                            setViewCar(c)
                             setOpenActionsCarId(null)
+                            void openView(c)
                           }}
                           onEdit={(c) => startEdit(c.id)}
                           onDelete={(c) => removeCar(c)}
@@ -889,13 +1064,13 @@ export function AdminCarsPage() {
         <div
           className="fixed inset-0 z-[85] flex items-center justify-center bg-ink/70 p-4 backdrop-blur-sm"
           role="presentation"
-          onClick={() => setViewCar(null)}
+          onClick={closeViewModal}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="admin-view-car-title"
-            className="flex max-h-[80vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-steel/60 bg-slate shadow-[0_25px_50px_-12px_rgba(0,0,0,0.45)]"
+            className="flex max-h-[80vh] w-full max-w-[640px] flex-col overflow-hidden rounded-2xl border border-steel/60 bg-slate shadow-[0_25px_50px_-12px_rgba(0,0,0,0.45)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex shrink-0 items-center justify-between border-b border-steel/50 bg-slate px-6 py-4">
@@ -904,7 +1079,7 @@ export function AdminCarsPage() {
               </h2>
               <button
                 type="button"
-                onClick={() => setViewCar(null)}
+                onClick={closeViewModal}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-steel/60 text-fog transition-colors hover:bg-steel/30"
                 aria-label="Close"
               >
@@ -927,6 +1102,7 @@ export function AdminCarsPage() {
                   ['Year', carListYear(viewCar)],
                   ['Fuel', viewCar.fuel || '—'],
                   ['Transmission', viewCar.transmission || '—'],
+                  ['Engine CC', viewCar.engineCc != null && viewCar.engineCc !== '' ? String(viewCar.engineCc) : '—'],
                   ['Status', viewCar.published ? 'Published' : 'Draft'],
                   ['Created', formatIstDateTime(viewCar.createdAt)],
                 ].map(([label, value]) => (
@@ -942,11 +1118,66 @@ export function AdminCarsPage() {
                   <p className="mt-1 whitespace-pre-wrap text-sm text-fog">{viewCar.notes}</p>
                 </div>
               ) : null}
+
+              <div className="rounded-xl border border-steel/40 bg-ink/15 p-3">
+                <p className="font-mono text-[10px] uppercase tracking-wider text-mist">Parts fitment</p>
+                {viewPartsLoading ? (
+                  <p className="mt-2 text-sm text-mist" role="status">
+                    Loading parts summary…
+                  </p>
+                ) : (
+                  <>
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <div className="rounded-lg border border-steel/40 bg-slate/40 px-3 py-2">
+                        <p className="font-mono text-[10px] uppercase tracking-wider text-mist">Total parts</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums text-fog">
+                          {viewPartsSummary?.totalParts ?? 0}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-steel/40 bg-slate/40 px-3 py-2">
+                        <p className="font-mono text-[10px] uppercase tracking-wider text-mist">Units sold</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums text-accent">
+                          {viewPartsSummary?.soldPartsCount ?? 0}
+                        </p>
+                      </div>
+                    </div>
+                    {viewPartsError ? (
+                      <p className="mt-2 text-xs text-flare">{viewPartsError}</p>
+                    ) : null}
+                    {(viewPartsSummary?.parts?.length ?? 0) > 0 ? (
+                      <div className="mt-3 overflow-x-auto rounded-lg border border-steel/40">
+                        <table className="w-full min-w-[360px] text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-steel/40 font-mono text-[10px] uppercase tracking-wider text-mist">
+                              <th className="px-3 py-2">Name</th>
+                              <th className="px-3 py-2">SKU</th>
+                              <th className="px-3 py-2 text-right">Sold</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-steel/30">
+                            {viewPartsSummary.parts.map((p) => (
+                              <tr key={p.productId} className="text-mist">
+                                <td className="px-3 py-2 text-fog">{p.name}</td>
+                                <td className="px-3 py-2 font-mono">{p.sku}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-fog">
+                                  {p.unitsSold ?? 0}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : !viewPartsLoading ? (
+                      <p className="mt-2 text-xs text-mist">No products are linked to this car yet.</p>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </div>
             <div className="flex shrink-0 justify-end gap-2 border-t border-steel/50 bg-slate px-6 py-4">
               <button
                 type="button"
-                onClick={() => setViewCar(null)}
+                onClick={closeViewModal}
                 className={headerBtnSecondary}
               >
                 Close
@@ -955,7 +1186,7 @@ export function AdminCarsPage() {
                 type="button"
                 onClick={() => {
                   const id = viewCar.id
-                  setViewCar(null)
+                  closeViewModal()
                   if (id) startEdit(id)
                 }}
                 className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-accent/50 bg-accent/10 px-3 font-mono text-[10px] font-medium uppercase tracking-wider text-accent transition-colors hover:bg-accent/20"

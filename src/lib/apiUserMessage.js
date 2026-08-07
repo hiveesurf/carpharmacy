@@ -68,6 +68,27 @@ export function toUserFacingApiError(payload, httpStatus) {
     }
   }
 
+  if (code === 'RATE_LIMITED' || httpStatus === 429) {
+    const details =
+      err && typeof err === 'object' && err.details && typeof err.details === 'object'
+        ? /** @type {{ retryAfterSeconds?: number }} */ (err.details)
+        : {}
+    const retryAfter = Number(details.retryAfterSeconds)
+    const base =
+      message && !looksLikeStackTrace(message)
+        ? message
+        : 'Too many requests, please wait and try again.'
+    const waitHint =
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? ` Please wait about ${Math.ceil(retryAfter)} seconds and try again.`
+        : ''
+    return {
+      message: `${base}${waitHint}`,
+      code: code || 'RATE_LIMITED',
+      requestId: meta.requestId ?? null,
+    }
+  }
+
   if (!message) {
     if (httpStatus >= 500) return { message: GENERIC, code, requestId: meta.requestId ?? null }
     if (httpStatus === 404) return { message: 'Not found.', code, requestId: meta.requestId ?? null }

@@ -26,6 +26,10 @@ public class AdminUser {
   @Column(nullable = false)
   private String role = "super_admin";
 
+  /** Set only when {@code role = custom}; null for sales/delivery/super_admin. */
+  @Column(name = "custom_role_id")
+  private UUID customRoleId;
+
   @Column(name = "full_name")
   private String fullName;
 
@@ -36,7 +40,7 @@ public class AdminUser {
   private Instant lastLogoutAt;
 
   @Column(name = "availability_status", nullable = false)
-  private String availabilityStatus = "offline";
+  private String availabilityStatus = "pending";
 
   @Column(name = "last_login_at")
   private Instant lastLoginAt;
@@ -96,6 +100,14 @@ public class AdminUser {
 
   public void setRole(String role) {
     this.role = role;
+  }
+
+  public UUID getCustomRoleId() {
+    return customRoleId;
+  }
+
+  public void setCustomRoleId(UUID customRoleId) {
+    this.customRoleId = customRoleId;
   }
 
   public String getFullName() {

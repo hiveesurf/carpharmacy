@@ -1,7 +1,104 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client.js'
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiV1Base, refreshSessionWithCookie } from './client.js'
+import { clearAccessToken, getAccessToken } from '../lib/authTokens.js'
+import { notifySessionDead } from '../lib/sessionEvents.js'
+import { toUserFacingApiError } from '../lib/apiUserMessage.js'
+import { getApiSessionId } from './session.js'
 
 export function adminDashboard() {
   return apiGet('/admin/dashboard')
+}
+
+/**
+ * @param {Record<string, string | number | boolean>} [query]
+ */
+export function adminGetSalesReport(query = {}) {
+  const q = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '') continue
+    q.set(key, String(value))
+  }
+  const qs = q.toString()
+  return apiGet(qs ? `/admin/sales-report?${qs}` : '/admin/sales-report')
+}
+
+/**
+ * @param {Record<string, string | number | boolean>} [query]
+ */
+export function adminGetReconciliation(query = {}) {
+  const q = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '') continue
+    q.set(key, String(value))
+  }
+  const qs = q.toString()
+  return apiGet(qs ? `/admin/reconciliation?${qs}` : '/admin/reconciliation')
+}
+
+/**
+ * Download reconciliation CSV for the current filters (auth + cookie refresh).
+ * @param {Record<string, string | number | boolean>} [query]
+ * @returns {Promise<void>}
+ */
+export async function adminExportReconciliationCsv(query = {}) {
+  const q = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '') continue
+    if (key === 'page' || key === 'size') continue
+    q.set(key, String(value))
+  }
+  const qs = q.toString()
+  const path = qs ? `/admin/reconciliation/export?${qs}` : '/admin/reconciliation/export'
+
+  const base = apiV1Base()
+  if (!base) {
+    const err = new Error('API_UNAVAILABLE')
+    err.code = 'API_UNAVAILABLE'
+    throw err
+  }
+
+  const doFetch = () => {
+    const headers = new Headers()
+    const at = getAccessToken()
+    if (at) headers.set('Authorization', `Bearer ${at}`)
+    headers.set('X-Guest-Session', getApiSessionId())
+    headers.set('Accept', 'text/csv')
+    return fetch(`${base}${path}`, { method: 'GET', credentials: 'include', headers })
+  }
+
+  let res = await doFetch()
+  if (res.status === 401) {
+    const refreshed = await refreshSessionWithCookie()
+    if (refreshed) res = await doFetch()
+    else {
+      clearAccessToken()
+      notifySessionDead()
+    }
+  }
+
+  if (!res.ok) {
+    let payload = {}
+    try {
+      payload = await res.json()
+    } catch {
+      payload = {}
+    }
+    const { message, code, requestId } = toUserFacingApiError(payload, res.status)
+    const err = new Error(message)
+    err.status = res.status
+    err.code = code
+    err.requestId = requestId
+    throw err
+  }
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'reconciliation.csv'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 /**
@@ -83,8 +180,17 @@ export function adminListCars(query = {}) {
   q.set('size', String(query.size ?? 5))
   if (query.published === true) q.set('published', 'true')
   if (query.brand) q.set('brand', String(query.brand))
+  const partName =
+    query.partName != null && String(query.partName).trim() !== ''
+      ? String(query.partName).trim()
+      : ''
+  if (partName) q.set('partName', partName)
   const s = q.toString()
   return apiGet(`/admin/cars${s ? `?${s}` : ''}`)
+}
+
+export function adminCarsPurchasedSummary() {
+  return apiGet('/admin/cars/purchased-summary')
 }
 
 export function adminCarFormOptions() {
@@ -93,6 +199,10 @@ export function adminCarFormOptions() {
 
 export function adminGetCar(id) {
   return apiGet(`/admin/cars/${encodeURIComponent(id)}`)
+}
+
+export function adminGetCarPartsSummary(id) {
+  return apiGet(`/admin/cars/${encodeURIComponent(id)}/parts-summary`)
 }
 
 export function adminCreateCar(body) {
@@ -111,7 +221,7 @@ export function adminPatchOrderStatus(id, status) {
   return apiPatch(`/admin/orders/${encodeURIComponent(id)}/status`, { status })
 }
 
-export function adminListUsers({ page = 0, size = 5, phone, role } = {}) {
+export function adminListUsers({ page = 0, size = 5, phone, role, createdFrom, createdTo, customerType } = {}) {
   const q = new URLSearchParams()
   q.set('page', String(page))
   q.set('size', String(size))
@@ -119,6 +229,14 @@ export function adminListUsers({ page = 0, size = 5, phone, role } = {}) {
   if (phoneTrim) q.set('phone', phoneTrim)
   const roleTrim = role != null && String(role).trim() !== '' ? String(role).trim() : ''
   if (roleTrim) q.set('role', roleTrim)
+  const fromTrim =
+    createdFrom != null && String(createdFrom).trim() !== '' ? String(createdFrom).trim() : ''
+  const toTrim = createdTo != null && String(createdTo).trim() !== '' ? String(createdTo).trim() : ''
+  if (fromTrim) q.set('createdFrom', fromTrim)
+  if (toTrim) q.set('createdTo', toTrim)
+  const customerTypeTrim =
+    customerType != null && String(customerType).trim() !== '' ? String(customerType).trim().toLowerCase() : ''
+  if (customerTypeTrim && customerTypeTrim !== 'all') q.set('customerType', customerTypeTrim)
   return apiGet(`/admin/users?${q.toString()}`)
 }
 
@@ -145,6 +263,14 @@ export function adminEmployeesSummary() {
 
 export function adminCreateEmployee(body) {
   return apiPost('/admin/employees', body)
+}
+
+export function adminGetMe() {
+  return apiGet('/admin/me')
+}
+
+export function adminListCustomRoles() {
+  return apiGet('/admin/custom-roles')
 }
 
 export function adminGetEmployee(phone) {

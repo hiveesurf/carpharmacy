@@ -81,7 +81,7 @@ public class JwtService {
     }
     String r = role.trim().toLowerCase();
     return switch (r) {
-      case "super_admin", "sales", "delivery", "user" -> r;
+      case "super_admin", "sales", "delivery", "custom", "user" -> r;
       case "admin" -> "super_admin";
       default -> "user";
     };
@@ -95,6 +95,8 @@ public class JwtService {
           List.of(new SimpleGrantedAuthority("ROLE_ADMIN"), new SimpleGrantedAuthority("ROLE_SALES"));
       case "delivery" ->
           List.of(new SimpleGrantedAuthority("ROLE_ADMIN"), new SimpleGrantedAuthority("ROLE_DELIVERY"));
+      case "custom" ->
+          List.of(new SimpleGrantedAuthority("ROLE_ADMIN"), new SimpleGrantedAuthority("ROLE_CUSTOM"));
       default -> List.of(new SimpleGrantedAuthority("ROLE_USER"));
     };
   }

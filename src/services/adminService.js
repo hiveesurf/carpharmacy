@@ -10,6 +10,32 @@ export async function dashboard() {
 }
 
 /**
+ * @param {Record<string, string | number | boolean>} [params]
+ */
+export async function getSalesReport(params = {}) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminGetSalesReport(params)
+  return data && typeof data === 'object' ? data : {}
+}
+
+/**
+ * @param {Record<string, string | number | boolean>} [params]
+ */
+export async function getReconciliation(params = {}) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminGetReconciliation(params)
+  return data && typeof data === 'object' ? data : {}
+}
+
+/**
+ * @param {Record<string, string | number | boolean>} [params]
+ */
+export async function exportReconciliationCsv(params = {}) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  await adminApi.adminExportReconciliationCsv(params)
+}
+
+/**
  * @param {{ page?: number, pageSize?: number, sort?: string, search?: string, lowStockOnly?: boolean }} [params]
  * @returns {Promise<{ items: unknown[], page: number, pageSize: number, total: number, totalPages: number, lowStockCount: number, lowStockThreshold: number }>}
  */
@@ -195,6 +221,18 @@ export async function listCarsPage(params = {}) {
   }
 }
 
+export async function getPurchasedCarsSummary() {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminCarsPurchasedSummary()
+  const d = data && typeof data === 'object' ? data : {}
+  return {
+    purchasedCarsCount:
+      typeof d.purchasedCarsCount === 'number'
+        ? d.purchasedCarsCount
+        : Number(d.purchasedCarsCount) || 0,
+  }
+}
+
 /**
  * @returns {Promise<{ fuels: { label: string }[], transmissions: { label: string }[] }>}
  */
@@ -212,6 +250,14 @@ export async function getCar(id) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminGetCar(id)
   return data?.car ?? null
+}
+
+export async function getCarPartsSummary(id) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminGetCarPartsSummary(id)
+  return data && typeof data === 'object'
+    ? data
+    : { carId: id, totalParts: 0, soldPartsCount: 0, parts: [] }
 }
 
 export async function createCar(body) {
@@ -294,9 +340,9 @@ export async function getEmployeeDeliveryOrders(employeeId, params = {}) {
   }
 }
 
-export async function listUsersPage({ page = 0, size = 5, phone, role } = {}) {
+export async function listUsersPage({ page = 0, size = 5, phone, role, createdFrom, createdTo, customerType } = {}) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
-  const { data } = await adminApi.adminListUsers({ page, size, phone, role })
+  const { data } = await adminApi.adminListUsers({ page, size, phone, role, createdFrom, createdTo, customerType })
   const d = data && typeof data === 'object' ? data : {}
   return {
     items: Array.isArray(d.items) ? d.items : [],
@@ -352,6 +398,19 @@ export async function createEmployee(body) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminCreateEmployee(body)
   return data?.employee ?? null
+}
+
+export async function getAdminMe() {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminGetMe()
+  return data && typeof data === 'object' ? data : null
+}
+
+export async function listCustomRoles() {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminListCustomRoles()
+  const items = data?.items
+  return Array.isArray(items) ? items : []
 }
 
 export async function getEmployee(phone) {

@@ -46,6 +46,7 @@ export function formatShippingAddressLines(addr) {
   if (addr.country && String(addr.country).trim().toUpperCase() !== 'IN') {
     lines.push(String(addr.country).trim())
   }
+  if (addr.gstNumber) lines.push(`GST: ${String(addr.gstNumber).trim()}`)
   return lines.filter(Boolean)
 }
 

@@ -71,6 +71,16 @@ public interface OrderRepository extends JpaRepository<OrderEntity, String> {
 
   @Query(
       """
+      SELECT o FROM OrderEntity o
+      WHERE (:startAt IS NULL OR o.placedAt >= :startAt)
+        AND (:endAt IS NULL OR o.placedAt < :endAt)
+      ORDER BY o.placedAt DESC
+      """)
+  List<OrderEntity> findForReconciliation(
+      @Param("startAt") Instant startAt, @Param("endAt") Instant endAt);
+
+  @Query(
+      """
       SELECT COUNT(o) FROM OrderEntity o
       WHERE lower(o.assignedDeliveryAdminEmail) = lower(:email)
         AND o.placedAt >= :startInclusive

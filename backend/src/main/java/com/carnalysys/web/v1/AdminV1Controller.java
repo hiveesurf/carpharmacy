@@ -2,13 +2,16 @@ package com.carnalysys.web.v1;
 
 import com.carnalysys.api.ApiEnvelope;
 import com.carnalysys.service.AdminApiService;
+import com.carnalysys.service.AdminReconciliationService;
 import com.carnalysys.service.NotificationService;
 import com.carnalysys.web.dto.ProductImportReport;
 import com.carnalysys.web.support.ApiResponses;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,16 +31,91 @@ import org.springframework.web.multipart.MultipartFile;
 public class AdminV1Controller {
 
   private final AdminApiService adminApiService;
+  private final AdminReconciliationService adminReconciliationService;
   private final NotificationService notificationService;
 
-  public AdminV1Controller(AdminApiService adminApiService, NotificationService notificationService) {
+  public AdminV1Controller(
+      AdminApiService adminApiService,
+      AdminReconciliationService adminReconciliationService,
+      NotificationService notificationService) {
     this.adminApiService = adminApiService;
+    this.adminReconciliationService = adminReconciliationService;
     this.notificationService = notificationService;
   }
 
   @GetMapping("/dashboard")
   public ApiEnvelope<Map<String, Object>> dashboard(HttpServletRequest req) {
     return ApiResponses.ok(req, adminApiService.dashboard());
+  }
+
+  @GetMapping("/reconciliation")
+  public ApiEnvelope<Map<String, Object>> reconciliation(
+      HttpServletRequest req,
+      @RequestParam(name = "startDate", required = false) String startDate,
+      @RequestParam(name = "endDate", required = false) String endDate,
+      @RequestParam(name = "status", defaultValue = "all") String status,
+      @RequestParam(name = "search", required = false) String search,
+      @RequestParam(name = "page", defaultValue = "0") int page,
+      @RequestParam(name = "size", defaultValue = "20") int size) {
+    return ApiResponses.ok(
+        req,
+        adminReconciliationService.getReconciliation(
+            startDate, endDate, status, search, page, size));
+  }
+
+  @GetMapping(value = "/reconciliation/export", produces = "text/csv")
+  public ResponseEntity<byte[]> reconciliationExport(
+      @RequestParam(name = "startDate", required = false) String startDate,
+      @RequestParam(name = "endDate", required = false) String endDate,
+      @RequestParam(name = "status", defaultValue = "all") String status,
+      @RequestParam(name = "search", required = false) String search) {
+    String csv =
+        adminReconciliationService.exportReconciliationCsv(startDate, endDate, status, search);
+    byte[] body = csv.getBytes(StandardCharsets.UTF_8);
+    return ResponseEntity.ok()
+        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"reconciliation.csv\"")
+        .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+        .body(body);
+  }
+
+  @GetMapping("/sales-report")
+  public ApiEnvelope<Map<String, Object>> salesReport(
+      HttpServletRequest req,
+      @RequestParam(name = "startDate", required = false) String startDate,
+      @RequestParam(name = "endDate", required = false) String endDate,
+      @RequestParam(name = "groupBy", defaultValue = "month") String groupBy,
+      @RequestParam(name = "sort", defaultValue = "highest") String sort,
+      @RequestParam(name = "sortBy", defaultValue = "revenue") String sortBy,
+      @RequestParam(name = "notSelling", defaultValue = "false") boolean notSelling,
+      @RequestParam(name = "page", defaultValue = "0") int page,
+      @RequestParam(name = "size", defaultValue = "20") int size) {
+    return ApiResponses.ok(
+        req,
+        adminApiService.getSalesReport(
+            startDate, endDate, groupBy, sort, sortBy, notSelling, page, size));
+  }
+
+  @GetMapping("/me")
+  public ApiEnvelope<Map<String, Object>> me(HttpServletRequest req) {
+    return ApiResponses.ok(req, adminApiService.getCurrentAdminMe());
+  }
+
+  @GetMapping("/custom-roles")
+  public ApiEnvelope<Map<String, Object>> listCustomRoles(HttpServletRequest req) {
+    return ApiResponses.ok(req, Map.of("items", adminApiService.listCustomRoles()));
+  }
+
+  @PostMapping("/custom-roles")
+  public ApiEnvelope<Map<String, Object>> createCustomRole(
+      HttpServletRequest req, @RequestBody Map<String, Object> body) {
+    return ApiResponses.ok(req, Map.of("role", adminApiService.createCustomRole(body)));
+  }
+
+  @PutMapping("/custom-roles/{id}/permissions")
+  public ApiEnvelope<Map<String, Object>> updateCustomRolePermissions(
+      HttpServletRequest req, @PathVariable String id, @RequestBody Map<String, Object> body) {
+    return ApiResponses.ok(
+        req, Map.of("role", adminApiService.updateCustomRolePermissions(id, body)));
   }
 
   @GetMapping("/products")
@@ -60,10 +138,17 @@ public class AdminV1Controller {
       HttpServletRequest req,
       @RequestParam(name = "published", required = false) Boolean published,
       @RequestParam(name = "brand", required = false) String brand,
+      @RequestParam(name = "partName", required = false) String partName,
       @RequestParam(name = "page", defaultValue = "0") Integer page,
       @RequestParam(name = "size", defaultValue = "5") Integer size) {
     boolean onlyPublished = Boolean.TRUE.equals(published);
-    return ApiResponses.ok(req, adminApiService.listCarsAdminPage(onlyPublished, brand, page, size));
+    return ApiResponses.ok(
+        req, adminApiService.listCarsAdminPage(onlyPublished, brand, partName, page, size));
+  }
+
+  @GetMapping("/cars/purchased-summary")
+  public ApiEnvelope<Map<String, Object>> carsPurchasedSummary(HttpServletRequest req) {
+    return ApiResponses.ok(req, adminApiService.getCarsPurchasedSummary());
   }
 
   @GetMapping("/cars/form-options")
@@ -74,6 +159,12 @@ public class AdminV1Controller {
   @GetMapping("/cars/{id}")
   public ApiEnvelope<Map<String, Object>> getCar(HttpServletRequest req, @PathVariable String id) {
     return ApiResponses.ok(req, adminApiService.getCarAdmin(id));
+  }
+
+  @GetMapping("/cars/{id}/parts-summary")
+  public ApiEnvelope<Map<String, Object>> carPartsSummary(
+      HttpServletRequest req, @PathVariable String id) {
+    return ApiResponses.ok(req, adminApiService.getCarPartsSummary(id));
   }
 
   @PostMapping("/cars")
@@ -263,8 +354,14 @@ public class AdminV1Controller {
       @RequestParam(name = "page", defaultValue = "0") Integer page,
       @RequestParam(name = "size", defaultValue = "5") Integer size,
       @RequestParam(name = "phone", required = false) String phone,
-      @RequestParam(name = "role", required = false) String role) {
-    return ApiResponses.ok(req, adminApiService.listUsersPage(page, size, phone, role));
+      @RequestParam(name = "role", required = false) String role,
+      @RequestParam(name = "createdFrom", required = false) String createdFrom,
+      @RequestParam(name = "createdTo", required = false) String createdTo,
+      @RequestParam(name = "customerType", required = false) String customerType) {
+    return ApiResponses.ok(
+        req,
+        adminApiService.listUsersPage(
+            page, size, phone, role, createdFrom, createdTo, customerType));
   }
 
   @GetMapping("/users/{id}")

@@ -1,15 +1,18 @@
-function base64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const raw = window.atob(base64)
-  const out = new Uint8Array(raw.length)
-  for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i)
-  return out
-}
-
+/**
+ * Registers against the single Workbox PWA service worker (not a separate /sw-push.js).
+ */
 export async function registerPushServiceWorker() {
   if (!('serviceWorker' in navigator)) return null
-  return navigator.serviceWorker.register('/sw-push.js')
+  const existing = await navigator.serviceWorker.getRegistration()
+  if (existing) return existing
+  // useRegisterSW registers the Workbox SW; wait for it rather than registering a second script.
+  const ready = await Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('App service worker is not ready yet.')), 8_000)
+    }),
+  ])
+  return ready
 }
 
 export async function requestPushSubscription() {
@@ -35,4 +38,13 @@ export async function requestPushSubscription() {
     applicationServerKey: base64ToUint8Array(vapidPublicKey),
   })
   return sub.toJSON()
+}
+
+function base64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = window.atob(base64)
+  const out = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i)
+  return out
 }

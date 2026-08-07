@@ -5,6 +5,7 @@ export function formatAddressBlock(a) {
     [a.line1, a.line2].filter(Boolean).join(', '),
     [a.city, a.state, a.pincode].filter(Boolean).join(', '),
     a.country,
+    a.gstNumber ? `GST: ${a.gstNumber}` : null,
   ].filter(Boolean)
   return parts.join('\n')
 }

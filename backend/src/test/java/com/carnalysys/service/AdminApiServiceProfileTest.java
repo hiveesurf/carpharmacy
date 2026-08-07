@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import com.carnalysys.api.ApiException;
+import com.carnalysys.domain.AddressEntity;
 import com.carnalysys.domain.AdminUser;
 import com.carnalysys.domain.OrderEntity;
 import com.carnalysys.domain.OrderStatus;
@@ -72,6 +73,7 @@ class AdminApiServiceProfileTest {
   @Mock private UserAvatarService userAvatarService;
   @Mock private NotificationService notificationService;
   @Mock private ProductExcelParser productExcelParser;
+  @Mock private CustomRoleService customRoleService;
 
   @InjectMocks private AdminApiService adminApiService;
 
@@ -120,6 +122,9 @@ class AdminApiServiceProfileTest {
 
     assertThat(result).containsKeys("user", "addresses", "orderCounts", "recentOrders");
     @SuppressWarnings("unchecked")
+    Map<String, Object> userMap = (Map<String, Object>) result.get("user");
+    assertThat(userMap).containsEntry("gstNumber", null);
+    @SuppressWarnings("unchecked")
     Map<String, Object> orderCounts = (Map<String, Object>) result.get("orderCounts");
     assertThat(orderCounts).containsEntry("total", 5L);
     assertThat(orderCounts).containsKey("last7Days");
@@ -127,6 +132,50 @@ class AdminApiServiceProfileTest {
     Map<String, Object> last7 = (Map<String, Object>) orderCounts.get("last7Days");
     assertThat(last7).containsEntry("recent", 2L);
     assertThat((List<?>) result.get("recentOrders")).hasSize(1);
+  }
+
+  @Test
+  void getUserProfileUsesDefaultAddressGstBeforeMostRecent() {
+    asAdmin();
+    UUID userId = UUID.randomUUID();
+    UserEntity user = new UserEntity();
+    user.setId(userId);
+    user.setPhoneE164("9876543210");
+    user.setDisplayName("Customer");
+    user.setRole("user");
+    when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+    when(userProfileRepository.findById(userId)).thenReturn(Optional.empty());
+
+    AddressEntity recentNonDefault = new AddressEntity();
+    recentNonDefault.setDefaultAddress(false);
+    recentNonDefault.setGstNumber("29newer0000z5x9");
+
+    AddressEntity defaultAddress = new AddressEntity();
+    defaultAddress.setDefaultAddress(true);
+    defaultAddress.setGstNumber("29abcde1234f2z5");
+
+    when(addressRepository.findByUser_IdAndDeletedAtIsNullOrderByCreatedAtDesc(userId))
+        .thenReturn(List.of(recentNonDefault, defaultAddress));
+    when(orderRepository.countByUser_Id(userId)).thenReturn(0L);
+    when(orderRepository.countByUser_IdAndStatus(userId, OrderStatus.placed)).thenReturn(0L);
+    when(orderRepository.countByUser_IdAndStatus(userId, OrderStatus.processing)).thenReturn(0L);
+    when(orderRepository.countByUser_IdAndStatus(userId, OrderStatus.shipped)).thenReturn(0L);
+    when(orderRepository.countByUser_IdAndStatus(userId, OrderStatus.delivered)).thenReturn(0L);
+    when(orderRepository.countByUser_IdAndStatus(userId, OrderStatus.cancelled)).thenReturn(0L);
+    when(orderRepository.countByUser_IdAndStatus(userId, OrderStatus.refunded)).thenReturn(0L);
+    when(orderRepository.countByUser_IdAndPlacedAtGreaterThanEqual(eq(userId), any(Instant.class)))
+        .thenReturn(0L);
+    when(orderRepository.countByUser_IdAndStatusAndPlacedAtGreaterThanEqual(
+            eq(userId), any(OrderStatus.class), any(Instant.class)))
+        .thenReturn(0L);
+    when(orderRepository.findByUser_IdOrderByPlacedAtDesc(eq(userId), any(Pageable.class)))
+        .thenReturn(Page.empty());
+
+    Map<String, Object> result = adminApiService.getUserProfile(userId.toString());
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> userMap = (Map<String, Object>) result.get("user");
+    assertThat(userMap).containsEntry("gstNumber", "29ABCDE1234F2Z5");
   }
 
   @Test

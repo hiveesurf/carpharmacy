@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Check, ChevronRight, CreditCard, MapPin, Package, Pencil, Plus } from 'lucide-react'
 import { formatInr } from '../data/partsCatalog'
@@ -6,6 +6,7 @@ import { useCart } from '../context/useCart'
 import { useAuth } from '../context/useAuth'
 import { apiV1Base } from '../api/client.js'
 import { Button } from '../components/ui/Button'
+import { ToggleSwitch } from '../components/ui/ToggleSwitch'
 import { ApiSectionError } from '../components/ui/ApiSectionError'
 import { CartLineRow } from '../components/cart/CartLineRow'
 import { createAddress, loadAddresses } from '../services/userService.js'
@@ -35,6 +36,8 @@ const emptyAddr = () => ({
   pincode: '',
   country: 'India',
   label: 'Home',
+  gstNumber: '',
+  isBusinessPurchase: false,
   isDefault: true,
 })
 
@@ -100,9 +103,13 @@ function CompletedSummary({ title, children, onChange }) {
   )
 }
 
-function ActiveStepCard({ icon: Icon, title, children }) {
+function ActiveStepCard({ icon: Icon, title, children, stepRef }) {
   return (
-    <section className="rounded-2xl border-2 border-accent/40 bg-ink/95 shadow-[0_12px_40px_-16px_rgba(0,0,0,0.45)] backdrop-blur-sm">
+    <section
+      ref={stepRef}
+      tabIndex={-1}
+      className="scroll-mt-[calc(var(--nav-h)+1rem)] rounded-2xl border-2 border-accent/40 bg-ink/95 shadow-[0_12px_40px_-16px_rgba(0,0,0,0.45)] backdrop-blur-sm outline-none"
+    >
       <div className="flex items-center gap-3 border-b border-accent/25 bg-accent/10 px-5 py-4">
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-on-accent">
           <Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
@@ -159,6 +166,9 @@ function AddressSelectCard({ address, selected, onSelect }) {
             {[address.city, address.state, address.pincode].filter(Boolean).join(', ')}
             {address.country ? ` · ${address.country}` : ''}
           </p>
+          {address.gstNumber ? (
+            <p className="mt-0.5 font-sans text-xs text-mist">GST: {address.gstNumber}</p>
+          ) : null}
         </div>
       </div>
     </button>
@@ -191,6 +201,8 @@ export function CheckoutPage() {
   const [reviewLines, setReviewLines] = useState(null)
 
   const checkoutStarted = checkoutActive || placeBusy || Boolean(createdOrder?.id)
+  const activeStepRef = useRef(null)
+  const prevStepRef = useRef(step)
 
   const displayLines = reviewLines ?? lineItems
   const displaySubtotal = useMemo(
@@ -285,6 +297,24 @@ export function CheckoutPage() {
     setReviewLines(lineItems)
     setStep('review')
   }
+
+  // After address → payment (or any step change), document height shrinks while scrollY stays
+  // high — the viewport lands near the footer. Bring the active step card into view instead.
+  useEffect(() => {
+    if (prevStepRef.current === step) return
+    prevStepRef.current = step
+    const el = activeStepRef.current
+    if (!el) return
+    const id = window.requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      try {
+        el.focus({ preventScroll: true })
+      } catch {
+        /* ignore */
+      }
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [step])
 
   async function saveNewAddress(e) {
     e.preventDefault()
@@ -453,7 +483,7 @@ export function CheckoutPage() {
           ) : null}
 
           {step === 'address' ? (
-            <ActiveStepCard icon={MapPin} title="Delivery address">
+            <ActiveStepCard icon={MapPin} title="Delivery address" stepRef={activeStepRef}>
               {addrLoading ? (
                 <p className="font-sans text-sm text-mist">Loading addresses…</p>
               ) : addrError ? (
@@ -519,6 +549,39 @@ export function CheckoutPage() {
                           />
                         </div>
                       ))}
+                      <label
+                        htmlFor="checkout-business-purchase"
+                        className="flex cursor-pointer items-center gap-3 font-sans text-sm text-fog"
+                      >
+                        <ToggleSwitch
+                          id="checkout-business-purchase"
+                          checked={Boolean(addrForm.isBusinessPurchase)}
+                          onChange={(e) =>
+                            setAddrForm((f) => ({
+                              ...f,
+                              isBusinessPurchase: e.target.checked,
+                              gstNumber: e.target.checked ? (f.gstNumber ?? '') : '',
+                            }))
+                          }
+                        />
+                        I'm purchasing as a business
+                      </label>
+                      {addrForm.isBusinessPurchase ? (
+                        <div>
+                          <label htmlFor="checkout-gst-number" className="block font-mono text-[9px] uppercase text-mist">
+                            GST Number
+                          </label>
+                          <input
+                            id="checkout-gst-number"
+                            type="text"
+                            autoComplete="off"
+                            maxLength={15}
+                            value={addrForm.gstNumber ?? ''}
+                            onChange={(e) => setAddrForm((f) => ({ ...f, gstNumber: e.target.value }))}
+                            className="mt-0.5 w-full rounded-lg border border-steel/70 bg-ink px-2 py-2 text-sm uppercase text-fog outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+                          />
+                        </div>
+                      ) : null}
                       <label className="flex items-center gap-2 font-sans text-sm text-fog">
                         <input
                           type="checkbox"
@@ -533,20 +596,6 @@ export function CheckoutPage() {
                       </Button>
                     </form>
                   )}
-
-                  {addresses.length === 0 && !showAddrForm ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddrForm(true)
-                        setStepError(null)
-                      }}
-                      className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/40 px-3 py-2.5 font-sans text-sm font-semibold text-accent transition-colors hover:bg-accent/10 sm:w-auto"
-                    >
-                      <Plus className="h-4 w-4" aria-hidden />
-                      Add new address
-                    </button>
-                  ) : null}
 
                   <div className="mt-6 flex flex-col-reverse gap-3 border-t border-steel/50 pt-5 sm:flex-row sm:items-center sm:justify-end">
                     {stepError && step === 'address' ? (
@@ -576,7 +625,7 @@ export function CheckoutPage() {
           ) : null}
 
           {step === 'payment' ? (
-            <ActiveStepCard icon={CreditCard} title="Payment method">
+            <ActiveStepCard icon={CreditCard} title="Payment method" stepRef={activeStepRef}>
               <ul className="space-y-3">
                 {PAYMENT_OPTIONS.map((opt) => {
                   const selected = paymentMethod === opt.id
@@ -620,7 +669,7 @@ export function CheckoutPage() {
           ) : null}
 
           {step === 'review' ? (
-            <ActiveStepCard icon={Package} title="Review order">
+            <ActiveStepCard icon={Package} title="Review order" stepRef={activeStepRef}>
               <ul className="space-y-4">
                 {displayLines.map(({ part, qty, lineTotal }) => (
                   <CartLineRow key={part.id} part={part} qty={qty} lineTotal={lineTotal} compact readOnly />

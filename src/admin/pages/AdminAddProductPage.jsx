@@ -26,12 +26,12 @@ export function AdminAddProductPage() {
           className="inline-flex items-center gap-2 rounded-xl border border-steel/70 bg-white px-4 py-2 text-sm font-medium text-mist shadow-sm transition-colors hover:border-accent/50 hover:text-accent dark:bg-slate"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to products
+          Back to inventory
         </Link>
 
         <div>
           <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-[#0f1111] dark:text-fog md:text-3xl">
-            Add product
+            Add inventory
           </h1>
           <p className="mt-1 text-sm text-[#565959] dark:text-mist">
             Create a new catalog part with pricing, stock, and vehicle fitment
@@ -46,7 +46,7 @@ export function AdminAddProductPage() {
               </span>
               <div>
                 <h2 className="font-display text-lg font-bold uppercase tracking-tight text-fog">
-                  Product details
+                  Inventory details
                 </h2>
                 <p className="text-xs text-mist">Required fields must be completed before saving</p>
               </div>

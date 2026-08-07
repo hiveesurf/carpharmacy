@@ -21,6 +21,7 @@ import {
 import { resolveApiAssetUrl } from '../lib/resolveApiAssetUrl.js'
 import { formatPublicIdentityInitials } from '../lib/identityDisplayLabel.js'
 import { Button } from '../components/ui/Button'
+import { ToggleSwitch } from '../components/ui/ToggleSwitch'
 
 const ADDR_FIELDS = [
   { key: 'line1', label: 'Address line 1', required: true },
@@ -41,8 +42,14 @@ const emptyAddr = () => ({
   pincode: '',
   country: 'IN',
   label: 'Home',
+  gstNumber: '',
+  isBusinessPurchase: false,
   isDefault: false,
 })
+
+function hasSavedGst(address) {
+  return Boolean(String(address?.gstNumber ?? '').trim())
+}
 
 export function AccountPage() {
   const { user, authHydrated, openAuth, signOut, patchUser, sessionRole } = useAuth()
@@ -278,6 +285,7 @@ export function AccountPage() {
                       ...emptyAddr(),
                       recipientName: name.trim(),
                       recipientPhone: secondaryPhone.trim() || primaryPhone.trim(),
+                      isBusinessPurchase: false,
                     })
                   }}
                   className="inline-flex items-center gap-1 rounded-xl border border-accent/40 px-3 py-2 font-sans text-xs font-semibold text-accent hover:bg-accent/10"
@@ -302,6 +310,9 @@ export function AccountPage() {
                         {a.city}
                         {a.state ? `, ${a.state}` : ''} {a.pincode}
                       </p>
+                      {a.gstNumber ? (
+                        <p className="mt-1 font-sans text-xs text-mist">GST: {a.gstNumber}</p>
+                      ) : null}
                       {a.isDefault && <span className="mt-1 inline-block text-xs text-accent">Default</span>}
                     </div>
                     <div className="flex gap-2">
@@ -314,6 +325,7 @@ export function AccountPage() {
                             ...a,
                             recipientName: name.trim(),
                             recipientPhone: secondaryPhone.trim() || primaryPhone.trim(),
+                            isBusinessPurchase: hasSavedGst(a),
                           })
                         }}
                       >
@@ -428,6 +440,39 @@ export function AccountPage() {
                       />
                     </div>
                   ))}
+                  <label
+                    htmlFor="addr-business-purchase"
+                    className="flex cursor-pointer items-center gap-3 font-sans text-sm text-fog"
+                  >
+                    <ToggleSwitch
+                      id="addr-business-purchase"
+                      checked={Boolean(addrForm.isBusinessPurchase)}
+                      onChange={(e) =>
+                        setAddrForm((f) => ({
+                          ...f,
+                          isBusinessPurchase: e.target.checked,
+                          gstNumber: e.target.checked ? (f.gstNumber ?? '') : '',
+                        }))
+                      }
+                    />
+                    I'm purchasing as a business
+                  </label>
+                  {addrForm.isBusinessPurchase ? (
+                    <div>
+                      <label htmlFor="addr-gst-number" className="block font-mono text-[9px] uppercase text-mist">
+                        GST Number
+                      </label>
+                      <input
+                        id="addr-gst-number"
+                        type="text"
+                        autoComplete="off"
+                        maxLength={15}
+                        value={addrForm.gstNumber ?? ''}
+                        onChange={(e) => setAddrForm((f) => ({ ...f, gstNumber: e.target.value }))}
+                        className="mt-0.5 w-full rounded-lg border border-steel/70 bg-ink px-2 py-2 text-sm uppercase text-fog outline-none focus:border-accent"
+                      />
+                    </div>
+                  ) : null}
                   <label className="flex items-center gap-2 font-sans text-sm text-fog">
                     <input
                       type="checkbox"

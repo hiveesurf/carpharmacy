@@ -516,7 +516,7 @@ export function AdminProductsPage() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-fog md:text-3xl">
-            Products
+            Inventory
           </h1>
           <p className="mt-1 max-w-xl text-sm text-mist">
             Manage pricing, stock, vehicle fitment, and profitability by product.
@@ -545,7 +545,7 @@ export function AdminProductsPage() {
             className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-5 font-display text-sm font-bold uppercase tracking-wide text-on-accent shadow-md transition-[filter] hover:brightness-95"
           >
             <Plus className="h-4 w-4" strokeWidth={2.5} />
-            Add product
+            Add inventory
           </Link>
         </div>
       </div>

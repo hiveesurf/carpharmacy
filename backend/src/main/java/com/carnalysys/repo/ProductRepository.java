@@ -32,6 +32,9 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
 
   long countByDeletedAtIsNullAndStockQuantityLessThanEqual(int stockQuantity);
 
+  /** All products (including soft-deleted) that still reference this category slug. */
+  long countByCategory_Slug(String categorySlug);
+
   @Query(
       value =
           """

@@ -34,6 +34,7 @@ export function resolveSessionRole(user, accessToken) {
   if (jwtRole === 'super_admin' || userRole === 'super_admin') return 'super_admin'
   if (jwtRole === 'sales' || userRole === 'sales') return 'sales'
   if (jwtRole === 'delivery' || userRole === 'delivery') return 'delivery'
+  if (jwtRole === 'custom' || userRole === 'custom') return 'custom'
   if (user?.role && typeof user.role === 'string') return user.role
   if (jwtRole) return jwtRole
   return 'user'

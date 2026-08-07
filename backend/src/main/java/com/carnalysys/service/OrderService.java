@@ -497,6 +497,7 @@ public class OrderService {
     m.put("pincode", a.getPincode());
     m.put("country", a.getCountry());
     m.put("label", a.getLabel());
+    m.put("gstNumber", a.getGstNumber());
     m.put("isDefault", a.isDefaultAddress());
     return m;
   }

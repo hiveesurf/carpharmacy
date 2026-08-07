@@ -70,6 +70,7 @@ class AdminApiServiceProductMetadataTest {
   @Mock private NotificationService notificationService;
   @Mock private ProductExcelParser productExcelParser;
   @Mock private LowStockAlertService lowStockAlertService;
+  @Mock private CustomRoleService customRoleService;
 
   private final ObjectMapper objectMapper = new ObjectMapper();
 

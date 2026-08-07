@@ -2,8 +2,10 @@ import { Fragment, useCallback, useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
-
-const PAGE_SIZE = 5
+import {
+  categoryDeleteErrorMessage,
+  removeCategoryFromList,
+} from '../../lib/adminCategoryDelete.js'
 
 function formatInr(n) {
   const v = Number(n)
@@ -19,42 +21,37 @@ function formatInr(n) {
   }
 }
 
+function formatPurchased(n) {
+  const v = Number(n)
+  if (!Number.isFinite(v) || v <= 0) return '—'
+  return formatInr(v)
+}
+
 export function AdminCategoriesPage() {
   const [items, setItems] = useState([])
   const [name, setName] = useState('')
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(false)
-  const [nextPage, setNextPage] = useState(1)
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
 
-  const load = useCallback(async (reset = true) => {
+  const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const result = await adminService.listCategoriesPage({ page: reset ? 0 : nextPage, size: PAGE_SIZE })
-      if (reset) {
-        setItems(result.items)
-      } else {
-        setItems((prev) => [...prev, ...result.items])
-      }
-      setHasMore(result.hasMore)
-      setNextPage(result.nextPage)
+      const result = await adminService.categoriesOverview()
+      setItems(Array.isArray(result.categories) ? result.categories : [])
     } catch (e) {
       setError(getFetchErrorMessage(e))
-      if (reset) setItems([])
-      setHasMore(false)
-      setNextPage(1)
+      setItems([])
     } finally {
       setLoading(false)
     }
-  }, [nextPage])
+  }, [])
 
   useEffect(() => {
-    load()
+    void load()
   }, [load])
 
   async function add(e) {
@@ -66,7 +63,7 @@ export function AdminCategoriesPage() {
     try {
       await adminService.createCategory(n)
       setName('')
-      await load(true)
+      await load()
     } catch (err) {
       setError(getFetchErrorMessage(err))
     } finally {
@@ -75,29 +72,18 @@ export function AdminCategoriesPage() {
   }
 
   async function remove(row) {
-    if (row.deleted) return
-    if (!window.confirm(`Delete category “${row.name}” (${row.id})? Products must be moved or deleted first.`))
+    if (!window.confirm(`Delete category “${row.name}” (${row.id})? This permanently removes it. Categories with products cannot be deleted.`))
       return
     setBusyId(row.id)
+    setError(null)
     try {
       await adminService.removeCategory(row.id)
       if (expandedId === row.id) setExpandedId(null)
-      await load(true)
+      setItems((prev) => removeCategoryFromList(prev, row.id))
     } catch (err) {
-      setError(getFetchErrorMessage(err))
+      setError(categoryDeleteErrorMessage(err))
     } finally {
       setBusyId(null)
-    }
-  }
-
-  async function loadMore() {
-    if (!hasMore || loadingMore) return
-    setLoadingMore(true)
-    setError(null)
-    try {
-      await load(false)
-    } finally {
-      setLoadingMore(false)
     }
   }
 
@@ -191,16 +177,11 @@ export function AdminCategoriesPage() {
                       </td>
                       <td className="px-4 py-3 font-medium text-fog">
                         <span>{c.name}</span>
-                        {c.deleted ? (
-                          <span className="ml-2 inline-flex rounded-full bg-flare-muted px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-flare">
-                            Deleted
-                          </span>
-                        ) : null}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-mist">{c.id}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-fog">{c.productCount ?? 0}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-accent">
-                        {formatInr(c.purchasedValueInr)}
+                        {formatPurchased(c.purchasedValueInr)}
                       </td>
                       <td className="max-w-[200px] truncate px-4 py-3 font-mono text-xs text-mist">
                         {c.createdByAdminEmail || '—'}
@@ -208,7 +189,7 @@ export function AdminCategoriesPage() {
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
-                          disabled={busyId === c.id || c.deleted}
+                          disabled={busyId === c.id}
                           onClick={() => remove(c)}
                           className="rounded-lg p-2 text-mist hover:bg-flare-muted hover:text-flare disabled:opacity-40"
                           title="Delete"
@@ -265,18 +246,6 @@ export function AdminCategoriesPage() {
           </div>
         </div>
       )}
-      {hasMore ? (
-        <div className="flex justify-center">
-          <button
-            type="button"
-            onClick={() => void loadMore()}
-            disabled={loadingMore}
-            className="rounded-xl border border-steel/80 px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loadingMore ? 'Loading…' : 'Load more'}
-          </button>
-        </div>
-      ) : null}
     </div>
   )
 }

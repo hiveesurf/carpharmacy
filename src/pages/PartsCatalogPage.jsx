@@ -967,21 +967,6 @@ function CatalogPartRow({ part, img, useApi, wished, onWishToggle, catalogReturn
         </Link>
         <p className="mt-2 font-display text-xl font-black text-accent">{formatInr(part.price)}</p>
 
-        <div className="mt-3 space-y-2 rounded-lg border border-steel/60 bg-slate/80 px-3 py-2">
-          <div className="flex items-center justify-between gap-2 font-sans text-[11px] font-semibold uppercase tracking-wide text-mist">
-            <span className="text-hud">In stock</span>
-            <span className={`tabular-nums text-fog ${left === 0 ? 'text-flare' : ''}`}>
-              {left}/{part.totalStock}
-            </span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-steel/80">
-            <div
-              className={`h-full rounded-full transition-[width] duration-300 ${left === 0 ? 'bg-mist/50' : 'bg-accent'}`}
-              style={{ width: `${part.totalStock ? Math.min(100, (left / part.totalStock) * 100) : 0}%` }}
-            />
-          </div>
-        </div>
-
         <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-mist">
           <span className="font-semibold text-hud">Fits: </span>
           {part.compatibleCars.join(', ')}

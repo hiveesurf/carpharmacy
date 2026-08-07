@@ -41,6 +41,9 @@ public class AddressEntity {
 
   private String label;
 
+  @Column(name = "gst_number", length = 15)
+  private String gstNumber;
+
   @Column(name = "is_default", nullable = false)
   private boolean defaultAddress;
 
@@ -119,6 +122,14 @@ public class AddressEntity {
 
   public void setLabel(String label) {
     this.label = label;
+  }
+
+  public String getGstNumber() {
+    return gstNumber;
+  }
+
+  public void setGstNumber(String gstNumber) {
+    this.gstNumber = gstNumber;
   }
 
   public boolean isDefaultAddress() {

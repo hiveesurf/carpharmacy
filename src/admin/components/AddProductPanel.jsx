@@ -400,7 +400,7 @@ export function AddProductPanel({ onCreated, openTrigger = 0, variant = 'panel',
     setCarMsg(null)
     setVehicleError('')
     if (!carFormOptions.fuels?.length || !carFormOptions.transmissions?.length) {
-      setCarMsg({ type: 'err', text: 'Fuel and transmission options could not be loaded. Close and reopen Add product, then try again.' })
+      setCarMsg({ type: 'err', text: 'Fuel and transmission options could not be loaded. Close and reopen Add inventory, then try again.' })
       setCarBusy(false)
       return
     }
@@ -1212,7 +1212,7 @@ export function AddProductPanel({ onCreated, openTrigger = 0, variant = 'panel',
         >
           <span className="flex items-center gap-2">
             <Plus className="h-5 w-5 text-accent" strokeWidth={2} />
-            Add product
+            Add inventory
           </span>
           {open ? <ChevronUp className="h-5 w-5 text-mist" /> : <ChevronDown className="h-5 w-5 text-mist" />}
         </button>

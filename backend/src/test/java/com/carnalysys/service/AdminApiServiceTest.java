@@ -77,6 +77,7 @@ class AdminApiServiceTest {
   @Mock private LowStockAlertService lowStockAlertService;
   @Mock private DeliveryWorkflowService deliveryWorkflowService;
   @Mock private WhatsappService whatsappService;
+  @Mock private CustomRoleService customRoleService;
 
   @InjectMocks private AdminApiService adminApiService;
 

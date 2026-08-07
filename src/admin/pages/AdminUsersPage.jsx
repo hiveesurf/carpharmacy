@@ -32,12 +32,10 @@ const TABLE_ROW =
 const VIEW_PROFILE_BTN =
   'inline-flex whitespace-nowrap rounded-lg border border-accent bg-white px-3 py-1.5 text-xs font-semibold text-accent shadow-sm transition-colors hover:bg-accent-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 dark:bg-slate dark:hover:bg-accent-muted'
 
-const JOIN_FILTERS = [
+const CUSTOMER_TYPE_FILTERS = [
   { key: 'all', label: 'All' },
-  { key: 'today', label: 'Today' },
-  { key: 'week', label: 'This week' },
-  { key: 'month', label: 'This month' },
-  { key: 'year', label: 'This year' },
+  { key: 'personal', label: 'Personal' },
+  { key: 'business', label: 'Business' },
 ]
 
 function FilterSelect({ id, value, onChange, className = '', children }) {
@@ -70,61 +68,6 @@ function parseJoinedDate(row) {
   if (!iso) return null
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? null : d
-}
-
-function startOfToday() {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function endOfToday() {
-  const d = new Date()
-  d.setHours(23, 59, 59, 999)
-  return d
-}
-
-function startOfWeek() {
-  const d = new Date()
-  const day = d.getDay()
-  const diff = day === 0 ? 6 : day - 1
-  d.setDate(d.getDate() - diff)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function startOfMonth() {
-  const d = new Date()
-  d.setDate(1)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function startOfYear() {
-  const d = new Date()
-  d.setMonth(0, 1)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function matchesJoinFilter(row, filterKey) {
-  if (filterKey === 'all') return true
-  const joined = parseJoinedDate(row)
-  if (!joined) return false
-  const t = joined.getTime()
-  if (filterKey === 'today') {
-    return t >= startOfToday().getTime() && t <= endOfToday().getTime()
-  }
-  if (filterKey === 'week') {
-    return t >= startOfWeek().getTime()
-  }
-  if (filterKey === 'month') {
-    return t >= startOfMonth().getTime()
-  }
-  if (filterKey === 'year') {
-    return t >= startOfYear().getTime()
-  }
-  return true
 }
 
 function compareByJoinedDesc(a, b) {
@@ -171,7 +114,9 @@ export function AdminUsersPage() {
   const [nextPage, setNextPage] = useState(1)
   const [searchInput, setSearchInput] = useState('')
   const [phoneForApi, setPhoneForApi] = useState('')
-  const [joinFilter, setJoinFilter] = useState('all')
+  const [customerTypeFilter, setCustomerTypeFilter] = useState('all')
+  const [joinedFrom, setJoinedFrom] = useState('')
+  const [joinedTo, setJoinedTo] = useState('')
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -180,6 +125,16 @@ export function AdminUsersPage() {
     }, PHONE_SEARCH_DEBOUNCE_MS)
     return () => window.clearTimeout(id)
   }, [searchInput])
+
+  /** Resolve From/To for the API: single filled field → that calendar day; both → inclusive range. */
+  const createdDateParams = useMemo(() => {
+    const from = joinedFrom.trim()
+    const to = joinedTo.trim()
+    if (!from && !to) return { createdFrom: undefined, createdTo: undefined }
+    if (from && !to) return { createdFrom: from, createdTo: from }
+    if (!from && to) return { createdFrom: to, createdTo: to }
+    return { createdFrom: from, createdTo: to }
+  }, [joinedFrom, joinedTo])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -190,6 +145,9 @@ export function AdminUsersPage() {
         size: PAGE_SIZE,
         phone: phoneForApi || undefined,
         role: CUSTOMER_ROLE,
+        createdFrom: createdDateParams.createdFrom,
+        createdTo: createdDateParams.createdTo,
+        customerType: customerTypeFilter,
       })
       setItems(result.items)
       setHasMore(result.hasMore)
@@ -202,7 +160,7 @@ export function AdminUsersPage() {
     } finally {
       setLoading(false)
     }
-  }, [phoneForApi])
+  }, [phoneForApi, createdDateParams.createdFrom, createdDateParams.createdTo, customerTypeFilter])
 
   useEffect(() => {
     void load()
@@ -218,6 +176,9 @@ export function AdminUsersPage() {
         size: PAGE_SIZE,
         phone: phoneForApi || undefined,
         role: CUSTOMER_ROLE,
+        createdFrom: createdDateParams.createdFrom,
+        createdTo: createdDateParams.createdTo,
+        customerType: customerTypeFilter,
       })
       setItems((prev) => [...prev, ...result.items])
       setHasMore(result.hasMore)
@@ -247,9 +208,8 @@ export function AdminUsersPage() {
       })
     }
 
-    rows = rows.filter((row) => matchesJoinFilter(row, joinFilter))
     return [...rows].sort(compareByJoinedDesc)
-  }, [items, normalizedSearch, phoneForApi, joinFilter])
+  }, [items, normalizedSearch, phoneForApi])
 
   return (
     <div className={canvasClass}>
@@ -278,7 +238,7 @@ export function AdminUsersPage() {
         <section className="overflow-hidden rounded-xl border border-[#d5d9d9] bg-white shadow-[0_2px_8px_rgba(15,17,17,0.08)] dark:border-steel/60 dark:bg-slate dark:shadow-none">
           <div className="w-full min-w-0 border-b border-[#e7e7e7] bg-[#fafafa] px-4 py-4 dark:border-steel/50 dark:bg-ink/10 sm:px-5">
             <div className={FILTER_TOOLBAR_ROW}>
-              <div className="relative z-10 min-w-[280px] w-full flex-1">
+              <div className="relative z-10 w-full min-w-[12rem] max-w-md flex-1 basis-[12rem] sm:basis-[14rem]">
                 <label htmlFor="users-search" className={FILTER_FIELD_LABEL}>
                   Search
                 </label>
@@ -292,24 +252,51 @@ export function AdminUsersPage() {
                     type="search"
                     value={searchInput}
                     onChange={(e) => setSearchInput(e.target.value)}
-                    placeholder="Search users by name, email, or phone number"
+                    placeholder="Name, email, or phone"
                     autoComplete="off"
                     className={`${FILTER_INPUT} pl-10`}
                   />
                 </div>
               </div>
 
-              <div className="w-full flex-shrink-0 sm:w-[200px] lg:w-[220px]">
-                <label htmlFor="users-join-filter" className={FILTER_FIELD_LABEL}>
+              <div className="w-full min-w-[9rem] flex-shrink-0 sm:w-[9.5rem]">
+                <label htmlFor="users-joined-from" className={FILTER_FIELD_LABEL}>
+                  Joined from
+                </label>
+                <input
+                  id="users-joined-from"
+                  type="date"
+                  value={joinedFrom}
+                  onChange={(e) => setJoinedFrom(e.target.value)}
+                  className={FILTER_INPUT}
+                />
+              </div>
+
+              <div className="w-full min-w-[9rem] flex-shrink-0 sm:w-[9.5rem]">
+                <label htmlFor="users-joined-to" className={FILTER_FIELD_LABEL}>
+                  Joined to
+                </label>
+                <input
+                  id="users-joined-to"
+                  type="date"
+                  value={joinedTo}
+                  min={joinedFrom || undefined}
+                  onChange={(e) => setJoinedTo(e.target.value)}
+                  className={FILTER_INPUT}
+                />
+              </div>
+
+              <div className="w-full flex-shrink-0 sm:w-[10.5rem] lg:w-[11rem]">
+                <label htmlFor="users-customer-type-filter" className={FILTER_FIELD_LABEL}>
                   Filter
                 </label>
                 <FilterSelect
-                  id="users-join-filter"
-                  value={joinFilter}
-                  onChange={(e) => setJoinFilter(e.target.value)}
+                  id="users-customer-type-filter"
+                  value={customerTypeFilter}
+                  onChange={(e) => setCustomerTypeFilter(e.target.value)}
                   className="w-full"
                 >
-                  {JOIN_FILTERS.map((o) => (
+                  {CUSTOMER_TYPE_FILTERS.map((o) => (
                     <option key={o.key} value={o.key}>
                       {o.label}
                     </option>
@@ -317,6 +304,21 @@ export function AdminUsersPage() {
                 </FilterSelect>
               </div>
             </div>
+            {joinedFrom || joinedTo ? (
+              <p className="mt-2 text-[11px] text-[#565959] dark:text-mist">
+                Calendar filter is applied on the server.{' '}
+                <button
+                  type="button"
+                  className="font-semibold text-accent underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setJoinedFrom('')
+                    setJoinedTo('')
+                  }}
+                >
+                  Clear dates
+                </button>
+              </p>
+            ) : null}
           </div>
 
           <div className="border-b border-[#e7e7e7] bg-white px-4 py-2 dark:border-steel/50 sm:px-5">

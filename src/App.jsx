@@ -8,11 +8,12 @@ import { AdminCarsPage } from './admin/pages/AdminCarsPage.jsx'
 import { AdminOrdersPage } from './admin/pages/AdminOrdersPage.jsx'
 import { AdminOrderDetailsPage } from './admin/pages/AdminOrderDetailsPage.jsx'
 import { AdminCategoriesPage } from './admin/pages/AdminCategoriesPage.jsx'
+import { AdminSalesReportPage } from './admin/pages/AdminSalesReportPage.jsx'
+import { AdminReconciliationPage } from './admin/pages/AdminReconciliationPage.jsx'
 import { AdminUsersPage } from './admin/pages/AdminUsersPage.jsx'
 import { AdminEmployeesPage } from './admin/pages/AdminEmployeesPage.jsx'
 import { AdminAddEmployeePage } from './admin/pages/AdminAddEmployeePage.jsx'
 import { AdminAddProductPage } from './admin/pages/AdminAddProductPage.jsx'
-import { AdminAddCarPage } from './admin/pages/AdminAddCarPage.jsx'
 import { AdminUserProfilePage } from './admin/pages/AdminUserProfilePage.jsx'
 import { AdminEmployeeProfilePage } from './admin/pages/AdminEmployeeProfilePage.jsx'
 import { DeliveryPartnerOrdersPage } from './admin/pages/DeliveryPartnerOrdersPage.jsx'
@@ -38,6 +39,7 @@ import { CheckoutPage } from './pages/CheckoutPage.jsx'
 import { OrderConfirmationPage } from './pages/OrderConfirmationPage.jsx'
 import { FavoritesPage } from './pages/FavoritesPage'
 import { PolicyDocumentPage } from './pages/PolicyDocumentPage'
+import { PwaLifecycleUI } from './components/pwa/PwaLifecycleUI.jsx'
 import {
   AdminHomeGate,
   DeliveryLegacyDetailRedirect,
@@ -108,6 +110,7 @@ export default function App() {
   return (
     <>
       <SyncHeroReturnSession />
+      <PwaLifecycleUI />
     <Routes>
       <Route path="/catalog" element={<AppShell><PartsCatalogPage /></AppShell>} />
       <Route
@@ -144,7 +147,6 @@ export default function App() {
         <Route path="products" element={<AdminProductsPage />} />
         <Route path="products/add" element={<AdminAddProductPage />} />
         <Route path="cars" element={<AdminCarsPage />} />
-        <Route path="cars/add" element={<AdminAddCarPage />} />
         <Route path="orders" element={<AdminOrdersPage />} />
         <Route path="orders/:orderId" element={<AdminOrderDetailsPage />} />
         <Route path="deliveries" element={<DeliveryLegacyListRedirect />} />
@@ -153,6 +155,8 @@ export default function App() {
         <Route path="deliveries/:orderId/proof" element={<DeliveryLegacyProofRedirect />} />
         <Route path="deliveries/:orderId/success" element={<DeliveryLegacySuccessRedirect />} />
         <Route path="categories" element={<AdminCategoriesPage />} />
+        <Route path="sales-report" element={<AdminSalesReportPage />} />
+        <Route path="reconciliation" element={<AdminReconciliationPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="users/:id" element={<AdminUserProfilePage />} />
         <Route path="employees" element={<AdminEmployeesPage />} />

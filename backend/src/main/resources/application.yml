@@ -71,6 +71,27 @@ app:
     webhook-replay-window-seconds: 600
     reconciliation-ms: 300000
     pending-timeout-minutes: 30
+  rate-limit:
+    enabled: ${APP_RATE_LIMIT_ENABLED:true}
+    auth:
+      capacity: ${APP_RATE_LIMIT_AUTH_CAPACITY:5}
+      window-seconds: ${APP_RATE_LIMIT_AUTH_WINDOW_SECONDS:60}
+    auth-lockout-after-violations: ${APP_RATE_LIMIT_AUTH_LOCKOUT_AFTER:3}
+    auth-lockout-seconds: ${APP_RATE_LIMIT_AUTH_LOCKOUT_SECONDS:900}
+    public-read:
+      capacity: ${APP_RATE_LIMIT_PUBLIC_READ_CAPACITY:120}
+      window-seconds: ${APP_RATE_LIMIT_PUBLIC_READ_WINDOW_SECONDS:60}
+    public-write:
+      capacity: ${APP_RATE_LIMIT_PUBLIC_WRITE_CAPACITY:20}
+      window-seconds: ${APP_RATE_LIMIT_PUBLIC_WRITE_WINDOW_SECONDS:60}
+    admin:
+      capacity: ${APP_RATE_LIMIT_ADMIN_CAPACITY:200}
+      window-seconds: ${APP_RATE_LIMIT_ADMIN_WINDOW_SECONDS:60}
+    exclude-path-prefixes:
+      - /api/v1/payments/webhook
+      - /api/v1/health
+      - /actuator/health
+      - /actuator/info
 
 ---
 spring:
@@ -82,6 +103,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+
+app:
+  rate-limit:
+    # Keep tests deterministic; enable explicitly in rate-limit unit/web tests.
+    enabled: false
 
 carnalysys:
   storage:

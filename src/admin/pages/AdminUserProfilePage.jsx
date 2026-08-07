@@ -248,12 +248,9 @@ export function AdminUserProfilePage() {
                       </span>
                     </div>
                     <div>
-                      <p className={labelClass}>User ID</p>
-                      <p
-                        className="mt-1 select-all rounded border border-[#e3e6e6] bg-[#f7fafa] px-2.5 py-1.5 font-mono text-xs leading-relaxed text-[#0f1111] dark:border-steel/50 dark:bg-ink/20 dark:text-fog"
-                        title="Select to copy"
-                      >
-                        {user.id}
+                      <p className={labelClass}>GST NO.</p>
+                      <p className="mt-1 w-full max-w-[18rem] rounded border border-[#e3e6e6] bg-[#f7fafa] px-2.5 py-1.5 font-mono text-xs leading-relaxed uppercase text-[#0f1111] dark:border-steel/50 dark:bg-ink/20 dark:text-fog">
+                        {user.gstNumber || '—'}
                       </p>
                     </div>
                   </div>
@@ -319,6 +316,9 @@ export function AdminUserProfilePage() {
                             {[a.city, a.state, a.pincode].filter(Boolean).join(', ')}
                             {a.country ? ` · ${a.country}` : ''}
                           </p>
+                          {a.gstNumber ? (
+                            <p className="mt-1 text-xs text-[#565959] dark:text-mist">GST: {a.gstNumber}</p>
+                          ) : null}
                         </li>
                       ))}
                     </ul>

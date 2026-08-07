@@ -1,7 +1,7 @@
 /**
  * Effective availability from an employee API row (`availability` only — not onboarding `status`).
  * @param {{ availability?: string | null } | null | undefined} row
- * @returns {'online' | 'busy' | 'offline'}
+ * @returns {'online' | 'busy' | 'offline' | 'pending'}
  */
 export function employeeAvailabilityFromRow(row) {
   return normalizeEmployeeAvailability(row?.availability)
@@ -10,10 +10,11 @@ export function employeeAvailabilityFromRow(row) {
 /**
  * Workforce availability display (matches backend EmployeeAvailability.effectiveStatus).
  * @param {string | null | undefined} raw
- * @returns {'online' | 'busy' | 'offline'}
+ * @returns {'online' | 'busy' | 'offline' | 'pending'}
  */
 export function normalizeEmployeeAvailability(raw) {
   const s = String(raw ?? '').trim().toLowerCase()
+  if (s === 'pending') return 'pending'
   if (s === 'offline') return 'offline'
   if (s === 'busy') return 'busy'
   if (s === 'online' || s === 'free') return 'online'
@@ -25,6 +26,7 @@ export function employeeAvailabilityLabel(raw) {
   const status = normalizeEmployeeAvailability(raw)
   if (status === 'online') return 'Online'
   if (status === 'busy') return 'Busy'
+  if (status === 'pending') return 'Pending'
   return 'Offline'
 }
 

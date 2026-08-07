@@ -327,16 +327,24 @@ public class AuthService {
         employee.setFirstLoginAt(Instant.now());
       }
       employee.setLastLoginAt(Instant.now());
-      if ("delivery".equalsIgnoreCase(employee.getRole())) {
-        employee.setAvailabilityStatus("online");
-      }
+      activatePendingOrDeliveryAvailability(employee);
       adminUserRepository.save(employee);
     } else {
       employee.setLastLoginAt(Instant.now());
-      if ("delivery".equalsIgnoreCase(employee.getRole())) {
-        employee.setAvailabilityStatus("online");
-      }
+      activatePendingOrDeliveryAvailability(employee);
       adminUserRepository.save(employee);
+    }
+  }
+
+  /** Pending employees become online on login; delivery stays online when already onboarded. */
+  private void activatePendingOrDeliveryAvailability(AdminUser employee) {
+    if (employee == null) return;
+    String avail =
+        employee.getAvailabilityStatus() == null
+            ? ""
+            : employee.getAvailabilityStatus().trim().toLowerCase();
+    if ("pending".equals(avail) || "delivery".equalsIgnoreCase(employee.getRole())) {
+      employee.setAvailabilityStatus("online");
     }
   }
 

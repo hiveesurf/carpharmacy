@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ShoppingBag, IndianRupee, TrendingUp, Package, Clock, Radio, AlertTriangle } from 'lucide-react'
+import { Users, ShoppingBag, IndianRupee, TrendingUp, Package, Clock, Radio, AlertTriangle, X } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
+import { normalizeChartRows } from '../../lib/adminRevenuePurchasesChart.js'
+import { RevenuePurchasesChart } from '../components/RevenuePurchasesChart.jsx'
 import { useAuth } from '../../context/useAuth.js'
 import { employeeAvailabilityShortLabel, normalizeEmployeeAvailability } from '../../lib/employeeAvailability.js'
 import { subscribeWorkforceAvailabilityRefresh } from '../../lib/workforceEvents.js'
@@ -17,11 +19,10 @@ function formatInr(n) {
 }
 
 const statMeta = [
-  { key: 'totalUsers', label: 'Users', icon: Users, accent: 'text-hud' },
-  { key: 'totalOrders', label: 'Orders', icon: ShoppingBag, accent: 'text-accent' },
+  { key: 'totalUsers', label: 'Users', icon: Users, accent: 'text-hud', to: '/admin/users' },
+  { key: 'totalOrders', label: 'Orders', icon: ShoppingBag, accent: 'text-accent', to: '/admin/orders' },
   { key: 'revenue', label: 'Revenue', icon: IndianRupee, accent: 'text-flare', format: formatInr },
-  { key: 'purchaseCount', label: 'Purchases', icon: ShoppingBag, accent: 'text-hud' },
-  { key: 'purchaseValue', label: 'Purchase value', icon: IndianRupee, accent: 'text-accent', format: formatInr },
+  { key: 'purchaseCount', label: 'Items sold', icon: ShoppingBag, accent: 'text-hud', to: '/admin/orders' },
 ]
 
 function formatCompactInr(n) {
@@ -34,88 +35,130 @@ function formatCompactInr(n) {
   }).format(Number(n))
 }
 
-function normalizeChartRows(rows) {
+function normalizePartsBreakdown(rows) {
   if (!Array.isArray(rows)) return []
   return rows
     .map((r) => ({
-      period: String(r?.period ?? ''),
+      category: String(r?.category ?? '').trim(),
+      count: Number(r?.count ?? 0),
       revenue: Number(r?.revenue ?? 0),
-      purchases: Number(r?.purchases ?? 0),
     }))
-    .filter((r) => r.period)
+    .filter((r) => r.category && (r.revenue > 0 || r.count > 0))
 }
 
-function RevenuePurchasesChart({ rows }) {
-  const width = 900
-  const height = 260
-  const paddingX = 26
-  const paddingTop = 20
-  const paddingBottom = 28
-  const chartWidth = width - paddingX * 2
-  const chartHeight = height - paddingTop - paddingBottom
-  const maxY = Math.max(1, ...rows.map((r) => r.revenue), ...rows.map((r) => r.purchases))
-  const denom = Math.max(1, rows.length - 1)
-  const toX = (i) => paddingX + (chartWidth * i) / denom
-  const toY = (v) => paddingTop + chartHeight - (v / maxY) * chartHeight
+const PARTS_PIE_PALETTE = [
+  '#ff6b35',
+  '#003366',
+  '#0d9488',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ec4899',
+  '#10b981',
+  '#3b82f6',
+  '#ef4444',
+  '#64748b',
+]
 
-  const linePath = (key) =>
-    rows
-      .map((row, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(2)} ${toY(row[key]).toFixed(2)}`)
-      .join(' ')
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
+}
 
-  const tickValues = [0.25, 0.5, 0.75, 1].map((f) => maxY * f)
-  const lastLabels = rows.length > 6 ? rows.slice(-6) : rows
+function donutSlicePath(cx, cy, outerR, innerR, startAngle, endAngle) {
+  const sweep = endAngle - startAngle
+  if (sweep <= 0) return ''
+  if (sweep >= 359.999) {
+    return [
+      `M ${cx} ${cy - outerR}`,
+      `A ${outerR} ${outerR} 0 1 1 ${cx} ${cy + outerR}`,
+      `A ${outerR} ${outerR} 0 1 1 ${cx} ${cy - outerR}`,
+      `M ${cx} ${cy - innerR}`,
+      `A ${innerR} ${innerR} 0 1 0 ${cx} ${cy + innerR}`,
+      `A ${innerR} ${innerR} 0 1 0 ${cx} ${cy - innerR}`,
+      'Z',
+    ].join(' ')
+  }
+  const large = sweep > 180 ? 1 : 0
+  const os = polarToCartesian(cx, cy, outerR, endAngle)
+  const oe = polarToCartesian(cx, cy, outerR, startAngle)
+  const is = polarToCartesian(cx, cy, innerR, startAngle)
+  const ie = polarToCartesian(cx, cy, innerR, endAngle)
+  return [
+    `M ${os.x} ${os.y}`,
+    `A ${outerR} ${outerR} 0 ${large} 0 ${oe.x} ${oe.y}`,
+    `L ${is.x} ${is.y}`,
+    `A ${innerR} ${innerR} 0 ${large} 1 ${ie.x} ${ie.y}`,
+    'Z',
+  ].join(' ')
+}
+
+function CarPartsBreakdownChart({ rows }) {
+  const totalRevenue = rows.reduce((sum, r) => sum + Math.max(0, r.revenue), 0)
+  const slices = []
+  let angle = 0
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    const share = totalRevenue > 0 ? row.revenue / totalRevenue : 0
+    const sweep = share * 360
+    const start = angle
+    const end = angle + sweep
+    angle = end
+    slices.push({
+      ...row,
+      start,
+      end,
+      percent: share * 100,
+      color: PARTS_PIE_PALETTE[i % PARTS_PIE_PALETTE.length],
+    })
+  }
+
+  const size = 220
+  const cx = size / 2
+  const cy = size / 2
+  const outerR = 88
+  const innerR = 52
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3 text-xs">
-        <span className="inline-flex items-center gap-1.5 text-accent">
-          <span className="h-2 w-2 rounded-full bg-accent" />
-          Revenue
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-hud">
-          <span className="h-2 w-2 rounded-full bg-hud" />
-          Purchases
-        </span>
-      </div>
-      <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[640px] w-full">
-          {tickValues.map((v) => {
-            const y = toY(v)
-            return (
-              <g key={v}>
-                <line x1={paddingX} y1={y} x2={width - paddingX} y2={y} className="stroke-steel/35" />
-                <text x={paddingX} y={y - 4} className="fill-mist text-[10px] font-mono">
-                  {formatCompactInr(v)}
-                </text>
-              </g>
-            )
-          })}
-          <line
-            x1={paddingX}
-            y1={paddingTop + chartHeight}
-            x2={width - paddingX}
-            y2={paddingTop + chartHeight}
-            className="stroke-steel/50"
+    <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-center sm:gap-6">
+      <svg viewBox={`0 0 ${size} ${size}`} className="h-48 w-48 shrink-0 sm:h-52 sm:w-52" aria-hidden>
+        {slices.map((s) => (
+          <path
+            key={s.category}
+            d={donutSlicePath(cx, cy, outerR, innerR, s.start, s.end)}
+            fill={s.color}
+            className="stroke-slate"
+            strokeWidth="1"
           />
-          <path d={linePath('revenue')} fill="none" className="stroke-accent" strokeWidth="2.5" />
-          <path d={linePath('purchases')} fill="none" className="stroke-hud" strokeWidth="2.5" />
-          {lastLabels.map((row, idx) => {
-            const originalIndex = rows.length > 6 ? rows.length - 6 + idx : idx
-            return (
-              <text
-                key={row.period}
-                x={toX(originalIndex)}
-                y={height - 8}
-                textAnchor="middle"
-                className="fill-mist text-[10px] font-mono"
-              >
-                {row.period}
-              </text>
-            )
-          })}
-        </svg>
-      </div>
+        ))}
+        <text
+          x={cx}
+          y={cy - 4}
+          textAnchor="middle"
+          className="fill-fog text-[11px] font-mono font-semibold uppercase tracking-wide"
+        >
+          Revenue
+        </text>
+        <text x={cx} y={cy + 14} textAnchor="middle" className="fill-mist text-[10px] font-mono">
+          {formatCompactInr(totalRevenue)}
+        </text>
+      </svg>
+      <ul className="w-full min-w-0 space-y-2 text-xs">
+        {slices.map((s) => (
+          <li key={s.category} className="flex items-center justify-between gap-3">
+            <span className="inline-flex min-w-0 items-center gap-2 text-fog">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                style={{ backgroundColor: s.color }}
+                aria-hidden
+              />
+              <span className="truncate font-sans">{s.category}</span>
+            </span>
+            <span className="shrink-0 font-mono tabular-nums text-mist">
+              {s.percent < 1 && s.percent > 0 ? '<1' : Math.round(s.percent)}% · {formatCompactInr(s.revenue)}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -135,6 +178,7 @@ export function AdminOverviewPage() {
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [availabilitySaving, setAvailabilitySaving] = useState(null)
+  const [lowStockDismissed, setLowStockDismissed] = useState(false)
 
   useEffect(() => {
     let cancel = false
@@ -323,11 +367,15 @@ export function AdminOverviewPage() {
 
   const top = Array.isArray(data?.topProducts) ? data.topProducts : []
   const chartRows = normalizeChartRows(data?.revenueVsPurchases)
-  const stats = statMeta.filter((s) => !(isSales && (s.key === 'revenue' || s.key === 'purchaseValue')))
+  const partsBreakdown = normalizePartsBreakdown(data?.partsBreakdown)
+  const stats = statMeta.filter((s) => !(isSales && s.key === 'revenue'))
   const lowStockCount = Number(data?.lowStockCount ?? 0)
   const lowStockThreshold = Number(data?.lowStockThreshold ?? 5)
   const showLowStockAlert =
-    !isDelivery && lowStockCount > 0 && (sessionRole === 'super_admin' || sessionRole === 'sales')
+    !isDelivery &&
+    !lowStockDismissed &&
+    lowStockCount > 0 &&
+    (sessionRole === 'super_admin' || sessionRole === 'sales')
 
   return (
     <div className="space-y-8">
@@ -336,7 +384,7 @@ export function AdminOverviewPage() {
           Analytics
         </h1>
         <p className="mt-1 max-w-xl text-sm text-mist">
-          Store performance at a glance. Use the sidebar to manage products, categories, and orders — same look as
+          Store performance at a glance. Use the sidebar to manage inventory, categories, and orders — same look as
           the main site.
         </p>
       </div>
@@ -357,31 +405,51 @@ export function AdminOverviewPage() {
                   {lowStockCount === 1 ? '' : 's'} at or below {lowStockThreshold} units.
                 </span>
               </p>
-              <Link
-                to="/admin/products?lowStock=1"
-                className="shrink-0 self-start rounded-lg border border-flare/40 bg-ink/30 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-flare transition-colors hover:bg-flare-muted sm:self-center"
-              >
-                Review inventory
-              </Link>
+              <div className="flex shrink-0 items-center gap-2 self-start sm:self-center">
+                <Link
+                  to="/admin/products?lowStock=1"
+                  className="rounded-lg border border-flare/40 bg-ink/30 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-flare transition-colors hover:bg-flare-muted"
+                >
+                  Review inventory
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setLowStockDismissed(true)}
+                  aria-label="Dismiss low stock warning"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-transparent text-flare transition-colors hover:bg-flare/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-flare/40"
+                >
+                  <X className="h-4 w-4" strokeWidth={2} aria-hidden />
+                </button>
+              </div>
             </div>
           ) : null}
 
           <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {stats.map(({ key, label, icon: Icon, accent, format }) => {
+            {stats.map(({ key, label, icon: Icon, accent, format, to }) => {
               const raw = data[key]
               const display = format ? format(raw) : String(raw ?? '—')
-              return (
-                <li
-                  key={key}
-                  className="admin-card relative overflow-hidden p-5"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist">{label}</p>
-                      <p className="mt-2 font-display text-2xl font-bold tabular-nums text-fog">{display}</p>
-                    </div>
-                    <Icon className={`h-8 w-8 shrink-0 opacity-90 ${accent}`} strokeWidth={1.5} />
+              const body = (
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist">{label}</p>
+                    <p className="mt-2 font-display text-2xl font-bold tabular-nums text-fog">{display}</p>
                   </div>
+                  <Icon className={`h-8 w-8 shrink-0 opacity-90 ${accent}`} strokeWidth={1.5} />
+                </div>
+              )
+              return (
+                <li key={key} className="admin-card relative overflow-hidden p-0">
+                  {to ? (
+                    <Link
+                      to={to}
+                      className="block p-5 transition-colors hover:bg-accent-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                      aria-label={`Open ${label}`}
+                    >
+                      {body}
+                    </Link>
+                  ) : (
+                    <div className="p-5">{body}</div>
+                  )}
                 </li>
               )
             })}
@@ -393,7 +461,7 @@ export function AdminOverviewPage() {
                   <p className="mt-2 text-sm text-mist">
                     Published highlights.{' '}
                     <Link to="/admin/products" className="font-semibold text-accent underline-offset-2 hover:underline">
-                      Add or edit products
+                      Manage inventory
                     </Link>
                   </p>
                 </div>
@@ -401,20 +469,38 @@ export function AdminOverviewPage() {
             </li>
           </ul>
 
-          {!isSales ? <section className="admin-card overflow-hidden">
-            <div className="flex items-center justify-between border-b border-steel/50 px-5 py-4">
-              <h2 className="font-mono text-[11px] uppercase tracking-[0.14em] text-mist">
-                Revenue vs purchases (all-time)
-              </h2>
+          {!isSales ? (
+            <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch lg:gap-6">
+              <section className="admin-card flex min-w-0 flex-col overflow-hidden">
+                <div className="flex items-center justify-between border-b border-steel/50 px-5 py-4">
+                  <h2 className="font-mono text-[11px] uppercase tracking-[0.14em] text-mist">
+                    Revenue vs items sold (all-time)
+                  </h2>
+                </div>
+                <div className="flex flex-1 flex-col px-5 py-4">
+                  {chartRows.length > 0 ? (
+                    <RevenuePurchasesChart rows={chartRows} />
+                  ) : (
+                    <p className="text-sm text-mist">No purchase data available yet.</p>
+                  )}
+                </div>
+              </section>
+              <section className="admin-card flex min-w-0 flex-col overflow-hidden">
+                <div className="flex items-center justify-between border-b border-steel/50 px-5 py-4">
+                  <h2 className="font-mono text-[11px] uppercase tracking-[0.14em] text-mist">
+                    Car parts breakdown
+                  </h2>
+                </div>
+                <div className="flex flex-1 flex-col px-5 py-4">
+                  {partsBreakdown.length > 0 ? (
+                    <CarPartsBreakdownChart rows={partsBreakdown} />
+                  ) : (
+                    <p className="text-sm text-mist">No parts data yet.</p>
+                  )}
+                </div>
+              </section>
             </div>
-            <div className="px-5 py-4">
-              {chartRows.length > 0 ? (
-                <RevenuePurchasesChart rows={chartRows} />
-              ) : (
-                <p className="text-sm text-mist">No purchase data available yet.</p>
-              )}
-            </div>
-          </section> : null}
+          ) : null}
 
           <section className="admin-card overflow-hidden">
             <div className="flex items-center justify-between border-b border-steel/50 px-5 py-4">

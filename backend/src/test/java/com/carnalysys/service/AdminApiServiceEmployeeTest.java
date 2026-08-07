@@ -73,6 +73,7 @@ class AdminApiServiceEmployeeTest {
   @Mock private UserAvatarService userAvatarService;
   @Mock private NotificationService notificationService;
   @Mock private ProductExcelParser productExcelParser;
+  @Mock private CustomRoleService customRoleService;
 
   @InjectMocks private AdminApiService adminApiService;
 
@@ -105,6 +106,7 @@ class AdminApiServiceEmployeeTest {
     verify(adminUserRepository).save(captor.capture());
     assertThat(captor.getValue().getRole()).isEqualTo("sales");
     assertThat(captor.getValue().getEmail()).isEqualTo("emp_9876543210@carnalysys.local");
+    assertThat(captor.getValue().getAvailabilityStatus()).isEqualTo("pending");
     assertThat(result).containsKey("employee");
   }
 
@@ -231,14 +233,14 @@ class AdminApiServiceEmployeeTest {
     sales.setRole("sales");
     sales.setPhoneE164("9111111111");
     Page<AdminUser> page = new PageImpl<>(List.of(sales));
-    when(adminUserRepository.findByRoleInAndDeletedAtIsNull(eq(List.of("sales", "delivery")), any(Pageable.class)))
+    when(adminUserRepository.findByRoleInAndDeletedAtIsNull(eq(List.of("sales", "delivery", "custom")), any(Pageable.class)))
         .thenReturn(page);
 
     Map<String, Object> result = adminApiService.listEmployeesPage(0, 5, false);
 
     assertThat(result.get("items")).asList().hasSize(1);
     verify(adminUserRepository)
-        .findByRoleInAndDeletedAtIsNull(eq(List.of("sales", "delivery")), any(Pageable.class));
+        .findByRoleInAndDeletedAtIsNull(eq(List.of("sales", "delivery", "custom")), any(Pageable.class));
     verify(adminUserRepository, never()).findAll(any(Pageable.class));
   }
 
